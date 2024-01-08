@@ -6,6 +6,7 @@
     - [Why we should care about Docker](#why-should-we-care-about-docker)
     - [Creating a Docker Image](#creating-a-docker-image)
     - [Creating a Custom Pipeline with Docker](#creating-a-custom-pipeline-with-docker)
+    - [Connecting pgAdmin and Postgres](#connecting-pgadmin-and-postgres)
 
 
 # Introduction to Data Engineering
@@ -251,3 +252,5 @@ We now create a Jupyter Notebook `upload-data.ipynb` file which we will use to r
 >Note: knowledge of Jupyter Notebook, Python environment management and Pandas is asumed in these notes. To learn more about pandas, can use [this](https://github.com/DataTalksClub/machine-learning-zoomcamp/blob/master/01-intro/09-pandas.md) section from the machine learning zommcamp, or you can check [this link](https://gist.github.com/ziritrion/9b80e47956adc0f20ecce209d494cd0a#pandas) for a Pandas cheatsheet and [this link](https://gist.github.com/ziritrion/8024025672ea92b8bdeb320d6015aa0d) for a Conda cheatsheet for Python environment management.
 
 Check the completed `upload-data.ipynb` for a detailed guide. You will need to have the CSV file referenced above (yellow_tripdata_2021-01.csv) in the same directory and the `ny_taxi_postgres_data` subdirectory.
+
+## Connecting pgAdmin and Postgres
