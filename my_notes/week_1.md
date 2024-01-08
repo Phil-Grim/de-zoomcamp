@@ -1,0 +1,253 @@
+### Table of contents
+
+- [Introduction to Data Engineering](#introduction-to-data-engineering)
+- [Docker and Postgres](#docker-and-postgres)
+    - [Docker Basic Concepts](#docker-basic-concepts)
+    - [Why we should care about Docker](#why-should-we-care-about-docker)
+    - [Creating a Docker Image](#creating-a-docker-image)
+    - [Creating a Custom Pipeline with Docker](#creating-a-custom-pipeline-with-docker)
+
+
+# Introduction to Data Engineering
+
+
+## Data Pipelines
+
+
+A **data pipeline** is a service that receives data as input and outputs more data. For example, reading a CSV file, transforming the data somehow and storing it as a table in a PostgreSQL database.
+
+![data pipeline](images/01_01.png)
+
+_[Back to the top](#table-of-contents)_
+
+# Docker and Postgres
+
+
+## Docker Basic Concepts
+
+**Docker** is a containerisation software
+
+On a host computer, you can run multiple docker containers. Container will hold everything needed to run the software independently of what is on the host computer (the operating system, library versions, etc.). E.g. The host computer could be windows, but the container, which runs a data pipeline - holds Ubuntu, and then various other things needed to run that pipeline, for example python 3.9, pandas, a postgres connection library
+
+**Docker images** are a _snapshot_ of a container that we can define to run our software, or in this case our data pipelines. By exporting our Docker images to Cloud providers such as Amazon Web Services or Google Cloud Platform we can run our containers there.
+
+
+## Why should we care about Docker
+
+- Reproducability -> can use a docker image, take the data pipeline held within the container, and run it in a different environment
+- Setting up environments for local experiments (and local tests)
+- Integration tests (CI/CD)
+- Running pipelines on the cloud (AWS Batch, Kubernetes jobs)
+- Spark - spark also enables you to define data pipelines; can specify all the dependencies we need for our pipeline in spark with docker
+- Serverless (AWS Lambda, Google functions)
+
+Docker containers are ***stateless***: any changes done inside a container will **NOT** be saved when the container is killed and started again. This is an advantage because it allows us to restore any container to its initial state in a reproducible manner, but you will have to store data elsewhere if you need to do so; a common way to do so is with _volumes_.
+
+>Note: you can learn more about Docker and how to set it up on a Mac [in this link](https://github.com/ziritrion/ml-zoomcamp/blob/11_kserve/notes/05b_virtenvs.md#docker). You may also be interested in a [Docker reference cheatsheet](https://gist.github.com/ziritrion/1842c8a4c4851602a8733bba19ab6050#docker).
+
+## Creating a Docker Image
+
+The below finds and runs the existing python:3.9 docker image
+
+```bash
+docker run -it python:3.9
+```
+
+- Can then type python code into the command line. However, we need pandas for our pipeline and it isn't installed with the above image - need to find a way for bash to install pandas
+
+```bash
+docker run -it --entrypoint=bash  python:3.9
+
+pip install pandas
+python
+```
+
+- The --entrypoint=bash argument means that instead of having a python prompt, we have a bash prompt - which we can use to pip install pandas.
+- Then, type 'python' in the bash prompt to enter the python3.9 prompt
+
+```python
+import pandas
+pandas.__version__
+```
+
+N.b. if you exit the docker image, and then run it again -> won't have pandas pip installed (see notes on Docker containers being ***stateless***)
+
+So, we want to add pandas to the docker image itself. Use a file named: **Dockerfile** to create a new image. See file in 2_docker_sql folder.
+
+```dockerfile
+# base docker image that we'll build on
+FROM python:3.9.1
+
+# set up our image by installing prerequisites; pandas in this case
+RUN pip install pandas 
+
+# define what to do when image first runs - open bash prompt in this case
+ENTRYPOINT [ "bash" ]
+```
+
+cd to the folder that contains the Dockerfile:
+```bash
+# Docker build didn't work until I ran this - issue was that I wasn't the owner of the directory 
+sudo chown -R $USER 2_docker_sql
+
+# -t -> the image name is 'test' and it's tag is 'pandas'. If the tag isn't specified, it defaults to 'latest'
+# . means we want to build the docker image in this directory
+docker build -t test:pandas .
+```
+
+Once the docker image has been built, can then run it:
+
+```bash
+# -it -> run interactively
+docker run -it test:pandas
+```
+
+## Creating a custom pipeline with Docker 
+
+We'll create a dummy `pipeline.py` python script that receives an argument and prints it.
+
+```python
+import sys
+import pandas # we don't need this but it's useful for the example
+
+# print arguments
+print(sys.argv)
+
+# argument 0 is the name of the file
+# argumment 1 contains the actual first argument we care about
+day = sys.argv[1]
+
+# cool pandas stuff goes here
+
+# print a sentence with the argument
+print(f'job finished successfully for day = {day}')
+```
+
+We can run this script with `python pipeline.py <some_number>` and it should print 2 lines:
+* `['pipeline.py', '<some_number>']`
+* `job finished successfully for day = <some_number>`
+
+Can then containerize it by creating a Docker image. Create the folllowing `Dockerfile` file:
+
+```dockerfile
+# base Docker image that we will build on
+FROM python:3.9.1
+
+# set up our image by installing prerequisites; pandas in this case
+RUN pip install pandas
+
+# set up the working directory inside the container
+WORKDIR /app
+# copy the script to the container. 1st name is source file, 2nd is destination
+COPY pipeline.py pipeline.py
+
+# define what to do first when the container runs
+# in this example, we will just run the script
+ENTRYPOINT ["python", "pipeline.py"]
+
+Build the image again:
+
+```ssh
+docker build -t test:pandas .
+```
+
+Can now run the container and pass an argument to it, so that our pipeline will receive it:
+
+```ssh
+docker run -it test:pandas <some_number>
+```
+
+You should get the same output you did when you ran the pipeline script by itself.
+
+![data pipeline](images/01_02.png)
+
+## Running Postgres in a Container 
+
+You can use docker compose to run a containerised version of Postgres and PGadmin
+
+Create a `docker-compose.yaml` file:
+
+```docker-compose
+services:
+  pgdatabase:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=root
+      - POSTGRES_DB=ny_taxi
+    volumes:
+      - "./ny_taxi_postgres_data:/var/lib/postgresql/data:rw"
+    ports:
+      - "5432:5432"
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@admin.com
+      - PGADMIN_DEFAULT_PASSWORD=root
+    ports:
+      - "8080:80"
+```
+
+- This calls on existing docker images, and sets a few environment variables to it as well as a volume for storing data.
+
+You can then run the following in bash, once you've cd'd to the folder that contains the .yaml file:
+
+```bash
+# -d means running it in detached mode - which means that the services will run in the background, and you'll be able to continue using the terminal for other commands without being attached to the containers' output
+docker-compose up -d
+```
+
+- The Docker Compose tool will read the configuration from the docker-compose.yaml file, create and start the specified services, networks, and volumes as defined in the file. If the services defined in your docker-compose.yaml file are not already built, Docker Compose will attempt to build them before starting.
+
+**Alternative approach...<br/>**
+...you can simply use docker to run postgres, using the following command:
+
+```bash
+docker run -it \
+    -e POSTGRES_USER="root" \
+    -e POSTGRES_PASSWORD="root" \
+    -e POSTGRES_DB="ny_taxi" \
+    -v $(pwd)/ny_taxi_postgres_data:/var/lib/postgresql/data \
+    -p 5432:5432 \
+    postgres:13
+```
+N.b. I used /home/USERNAME/data-engineering-zoomcamp/week_1_basics_n_setup/2_docker_sql instead of `$(pwd)` -> should be the same thing (see below), but `$(pwd)` wasn't working for me 
+
+* The container needs 3 environment variables (-e):
+    * `POSTGRES_USER` is the username for logging into the database. We chose `root`.
+    * `POSTGRES_PASSWORD` is the password for the database. We chose `root`
+        * ***IMPORTANT: These values are only meant for testing. Please change them for any serious project.***
+    * `POSTGRES_DB` is the name that we will give the database. We chose `ny_taxi`.
+* `-v` points to the volume directory. The colon `:` separates the first part (path to the folder in the host computer) from the second part (path to the folder inside the container).
+    * Path names must be absolute. If you're in a UNIX-like system, you can use `pwd` to print you local folder as a shortcut; this example should work with both `bash` and `zsh` shells, but `fish` will require you to remove the `$`.
+    * This command will only work if you run it from a directory which contains the `ny_taxi_postgres_data` subdirectory you created above.
+    * A volume is designed to persist the Postgres data - ./ny_taxi_postgres_data is mounted to /var/lib/postgresql/data inside the container. This ensures that the data in the PostgreSQL database is stored on the host machine and survives container restarts.
+* The `-p` is for port mapping. We map the default Postgres port to the same port in the host.
+* The last argument is the image name and tag. We run the official `postgres` image on its version `13`.
+
+Once the container is running, we can log into our database with [pgcli](https://www.pgcli.com/) with the following command:
+
+```bash
+pgcli -h localhost -p 5432 -u root -d ny_taxi
+```
+* `-h` is the host. Since we're running locally we can use `localhost`.
+* `-p` is the port.
+* `-u` is the username.
+* `-d` is the database name.
+* The password is not provided; it will be requested after running the command.
+
+## Ingesting Data into Postgres
+
+Ingesting data from this csv:
+From here: https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page
+Data dictionary here: https://www1.nyc.gov/assets/tlc/downloads/pdf/data_dictionary_trip_records_yellow.pdf 
+
+![data_head](images/01_03.png)
+
+1.3million rows in the dataset.
+
+We now create a Jupyter Notebook `upload-data.ipynb` file which we will use to read a CSV file and export it to Postgres.
+
+>Note: knowledge of Jupyter Notebook, Python environment management and Pandas is asumed in these notes. To learn more about pandas, can use [this](https://github.com/DataTalksClub/machine-learning-zoomcamp/blob/master/01-intro/09-pandas.md) section from the machine learning zommcamp, or you can check [this link](https://gist.github.com/ziritrion/9b80e47956adc0f20ecce209d494cd0a#pandas) for a Pandas cheatsheet and [this link](https://gist.github.com/ziritrion/8024025672ea92b8bdeb320d6015aa0d) for a Conda cheatsheet for Python environment management.
+
+Check the completed `upload-data.ipynb` for a detailed guide. You will need to have the CSV file referenced above (yellow_tripdata_2021-01.csv) in the same directory and the `ny_taxi_postgres_data` subdirectory.
