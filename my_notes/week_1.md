@@ -6,7 +6,13 @@
     - [Why we should care about Docker](#why-should-we-care-about-docker)
     - [Creating a Docker Image](#creating-a-docker-image)
     - [Creating a Custom Pipeline with Docker](#creating-a-custom-pipeline-with-docker)
-    - [Connecting pgAdmin and Postgres](#connecting-pgadmin-and-postgres)
+    - [Connecting pgAdmin and Postgres with Docker Networking](#connecting-pgadmin-and-postgres-with-docker-networking)
+    - [Using the Ingestion Script with Docker](#using-the-ingestion-script-with-docker)
+      - [Exporting and Testing the Script](#exporting-and-testing-the-script)
+      - [Dockerizing the Script](#dockerising-the-script)
+    - [Running Postgres and PgAdmin with Docker-Compose](#running-postgres-and-pgadmin-with-docker-compose)
+    - [SQL Refresher](#sql-refresher)
+  
 
 
 # Introduction to Data Engineering
@@ -262,7 +268,7 @@ Can write queries in the command line:
 
 But that isn't very convenient. **PgAdmin** is a more convenient tool - it is a web-vased GUI used to interact with Postgres database sessions, both locally and with remote servers too. You can use PGAdmin to perform any sort of database administration required for a Postgres database.
 
-### Connecting pgAdmin and Postgres with docker Networking
+### Connecting pgAdmin and Postgres with Docker Networking
 
 *will cover docker compose later*
 
@@ -381,7 +387,7 @@ FROM
 ```
 * This query should return 1,369,765 rows.
 
-### Dockerising the Scripts
+### Dockerising the Script
 
 Let's modify the [Dockerfile we created before](#creating-a-custom-pipeline-with-docker) to include our `ingest_data.py` script and create a new image:
 
@@ -421,3 +427,82 @@ docker run -it \
 * We need to provide the network for Docker to find the Postgres container. It goes before the name of the image.
 * Since Postgres is running on a separate container, the host argument will have to point to the container name of Postgres. Localhost would just point to itself.
 * You can drop the table in pgAdmin beforehand if you want, but the script will automatically replace the pre-existing table.
+
+
+## Running Postgres and PgAdmin with Docker-Compose
+
+`docker-compose` allows us to launch multiple containers using a single configuration file, so that we don't have to run multiple complex `docker run` commands separately.
+
+Docker compose makes use of YAML files. Here's the `docker-compose.yaml` file for running the Postgres and pgAdmin containers:
+
+```yaml
+services:
+  pgdatabase:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=root
+      - POSTGRES_DB=ny_taxi
+    volumes:
+      - "./ny_taxi_postgres_data:/var/lib/postgresql/data:rw"
+    ports:
+      - "5432:5432"
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@admin.com
+      - PGADMIN_DEFAULT_PASSWORD=root
+    volumes:
+      - "./data_pgadmin:/var/lib/pgadmin"
+    ports:
+      - "8080:80"
+```
+
+* We don't have to specify a network because `docker-compose` takes care of it: every single container (or "service", as the file states) will run withing the same network and will be able to find each other according to their names (`pgdatabase` and `pgadmin` in this example).
+* We've added a volume for pgAdmin to save its settings, so that you don't have to keep re-creating the connection to Postgres every time ypu rerun the container. Make sure you create a `data_pgadmin` directory in your work folder where you run `docker-compose` from.
+  * this didn't work (in the video - said he didn't know how to persist the connection either)
+* All other details from the `docker run` commands (environment variables, volumes and ports) are mentioned accordingly in the file following YAML syntax.
+
+We can now run Docker compose by running the following command from the same directory where `docker-compose.yaml` is found. Make sure that all previous containers aren't running anymore:
+
+```bash
+docker-compose up
+```
+
+You will have to press `Ctrl+C` in order to shut down the containers. The proper way of shutting them down is with this command:
+
+```bash
+docker-compose down
+```
+
+And if you want to run the containers again in the background rather than in the foreground (thus freeing up your terminal), you can run them in detached mode:
+
+```bash
+docker-compose up -d
+```
+
+If you want to re-run the dockerized ingest script when you run Postgres and pgAdmin with `docker-compose`, you will have to find the name of the virtual network that Docker compose created for the containers. You can use the command `docker network ls` to find it and then change the `docker run` command for the dockerized script to include the network name.
+
+## SQL refresher
+
+Below are a series of SQL query examples to remember how SQL works. For this example we'll asume that we're working with 2 tables named `yellow_taxi_trips` (list of all yelow taxi trips of NYC for January 2021) and `zones` (list of zone IDs for pick ups and drop offs).
+
+>Check the [homework](https://github.com/DataTalksClub/data-engineering-zoomcamp/blob/main/week_1_basics_n_setup/homework.md) for the session to learn about the `zones` table.
+
+>For a more detailed look into SQL, check out [this article](https://towardsdatascience.com/sql-in-a-nutshell-part-1-basic-real-world-scenarios-33a25ba8d220).
+
+### ADD NOTES!!
+
+```sql
+SELECT
+    CAST(tpep_pickup_datetime AS DATE) as "day",
+	tpep_pickup_datetime,
+    SUM(total_amount) OVER 
+	(PARTITION BY CAST(tpep_pickup_datetime AS DATE) ORDER BY tpep_pickup_datetime) AS "running_total"
+FROM
+    yellow_taxi_trips t
+LIMIT 1000;
+```
+
+- The above orders results by 'day', and within each 'day' value, orders by datetime. The 'running total' sums across the current row and all previous rows (with the same 'day' value) of total_amount - which is the amount paid for a given taxi trip
+- Limited it to 1000 just to reduce query size
