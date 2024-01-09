@@ -30,7 +30,7 @@ def main(params):
 
     engine = create_engine(f'postgresql://{user}:{password}@{host}:{port}/{db}')
 
-    df_iter = pd.read_csv(csv_name, iterator=True, chunksize=100000)
+    df_iter = pd.read_csv(csv_name, sep=',', iterator=True, chunksize=100000, on_bad_lines='warn')
 
     df = next(df_iter)
 

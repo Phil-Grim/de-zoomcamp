@@ -1,19 +1,13 @@
 FROM python:3.9.1
 
-# RUN apt-get install wget
-# RUN pip install pandas sqlalchemy psycopg2
+# We need to install wget to download the csv file
+RUN apt-get install wget
+# psycopg2 is a postgres db adapter for python: sqlalchemy needs it
+RUN pip install pandas sqlalchemy psycopg2
 
-# WORKDIR /app
-# COPY ingest_data.py ingest_data.py 
-
-# ENTRYPOINT [ "python", "ingest_data.py" ]
-
-
-# Working through:
-
-RUN pip install pandas
-
+# set up the working directory inside the container
 WORKDIR /app
-COPY pipeline.py pipeline.py
+# copy the script to the container. 1st name is source file, 2nd is destination
+COPY ingest_data.py ingest_data.py 
 
-ENTRYPOINT ["python", "pipeline.py"]
+ENTRYPOINT [ "python", "ingest_data.py" ]
