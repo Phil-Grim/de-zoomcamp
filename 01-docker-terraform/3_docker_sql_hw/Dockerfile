@@ -1,0 +1,13 @@
+FROM python:3.9.1
+
+# We need to install wget to download the csv file
+RUN apt-get install wget
+# psycopg2 is a postgres db adapter for python: sqlalchemy needs it
+RUN pip install pandas sqlalchemy psycopg2
+
+# set up the working directory inside the container
+WORKDIR /app
+# copy the script to the container. 1st name is source file, 2nd is destination
+COPY hw_ingest_data.py hw_ingest_data.py 
+
+ENTRYPOINT [ "python", "hw_ingest_data.py" ]
