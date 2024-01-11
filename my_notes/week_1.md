@@ -11,7 +11,9 @@
       - [Exporting and Testing the Script](#exporting-and-testing-the-script)
       - [Dockerizing the Script](#dockerising-the-script)
     - [Running Postgres and PgAdmin with Docker-Compose](#running-postgres-and-pgadmin-with-docker-compose)
-    - [SQL Refresher](#sql-refresher)
+    - [SQL Refresher - NEED TO ADD NOTES](#sql-refresher)
+  - [Terraform and GCP Set Up - NEED TO ADD NOTES](#terraform--gcp-set-up)
+  - [Week 1 Homework](#week-1-hw)
   
 
 
@@ -413,29 +415,19 @@ docker build -t taxi_ingest:v001 .
 And run it:
 ```bash
 docker run -it \
-    --network=pg-network \
+    --network=pg_network \
     taxi_ingest:v001 \
     --user=root \
     --password=root \
-    --host=pg-database \
+    --host=pgdatabase \
     --port=5432 \
     --db=ny_taxi \
     --table_name=yellow_taxi_trips \
     --url="https://github.com/DataTalksClub/nyc-tlc-data/releases/download/yellow/yellow_tripdata_2021-01.csv.gz"
-
-docker run -it \
-    --network=pg-network \
-    taxi_ingest:v001 \
-    --user=root \
-    --password=root \
-    --host=pg-database \
-    --port=5432 \
-    --db=ny_taxi \
-    --table_name=green_taxi_trips \
-    --url="https://github.com/DataTalksClub/nyc-tlc-data/releases/download/green/green_tripdata_2019-01.csv.gz"
 ```
 
 * We need to provide the network for Docker to find the Postgres container. It goes before the name of the image.
+  * If you've used docker-compose to create pgdatabase and pgadmin, will need to find the network that was created in that process - by using docker network ls (was 2_docker_sql_default in my case). See below for info on this.
 * Since Postgres is running on a separate container, the host argument will have to point to the container name of Postgres. Localhost would just point to itself.
 * You can drop the table in pgAdmin beforehand if you want, but the script will automatically replace the pre-existing table.
 
@@ -517,3 +509,71 @@ LIMIT 1000;
 
 - The above orders results by 'day', and within each 'day' value, orders by datetime. The 'running total' sums across the current row and all previous rows (with the same 'day' value) of total_amount - which is the amount paid for a given taxi trip
 - Limited it to 1000 just to reduce query size
+
+
+# Terraform & GCP set up
+
+# Week 1 HW
+
+
+Q3:
+
+```sql
+SELECT
+    CAST(lpep_pickup_datetime AS DATE) as "day-pickup",
+	CAST(lpep_dropoff_datetime AS DATE) as "day-dropoff",
+    COUNT(1)
+FROM
+    green_taxi_trips t
+GROUP BY
+    1, 2
+HAVING CAST(lpep_pickup_datetime AS DATE) = '2019-01-15' AND
+	CAST(lpep_dropoff_datetime AS DATE) = '2019-01-15';
+```
+
+Q4
+
+```sql
+SELECT
+    CAST(lpep_pickup_datetime AS DATE) as "day",
+	MAX(trip_distance) as "max_dist"
+FROM
+    green_taxi_trips t
+GROUP BY
+    1
+ORDER BY "max_dist" DESC;
+```
+
+Q5
+
+```sql
+SELECT
+    CAST(lpep_pickup_datetime AS DATE) as "day",
+	passenger_count,
+	COUNT(1)
+FROM
+    green_taxi_trips t
+GROUP BY
+    1, 2
+HAVING CAST(lpep_pickup_datetime AS DATE) = '2019-01-01' AND 
+	(passenger_count = 1 OR passenger_count = 2);
+  ```
+
+Q6
+
+```sql
+SELECT
+	zup."Zone" as "pick-up",
+	zod."Zone" as "drop-off",
+	MAX(tip_amount) as max_tip
+FROM
+    green_taxi_trips t
+JOIN zones zod
+ON t."DOLocationID" = zod."LocationID"
+JOIN zones zup
+ON t."PULocationID" = zup."LocationID"
+GROUP BY
+    1,2
+HAVING zup."Zone" = 'Astoria'
+ORDER BY "max_tip" DESC;
+```

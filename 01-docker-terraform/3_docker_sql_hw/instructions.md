@@ -4,11 +4,12 @@ Build the docker image from this folder:
 docker build -t taxi_ingest:v002 .
 ```
 
-Run the docker image - which should run the pipeline from hw_ingest_data.py, uploading the csv data into postgres
+Run the docker image - which should run the pipeline from hw_ingest_data.py, uploading the csv data into postgres.
+    *  Having used docker-compose to create pgdatabase and pgadmin, will need to find the network that was created in that process - by using docker network ls (was 2_docker_sql_default in my case).
 
 ```bash
 docker run -it \
-    --network=pg-network \
+    --network=2_docker_sql_default \
     taxi_ingest:v002 \
     --user=root \
     --password=root \
