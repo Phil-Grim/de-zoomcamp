@@ -4,7 +4,7 @@ locals {
 
 variable "credentials" {
   description = "My Credentials"
-  default     = "/home/USERNAME/.gc/evident-display-410312-6d17d29a1ecf.json"
+  default     = ""
   #ex: if you have a directory where this file is called keys with your service account json file
   #saved there as my-creds.json you could use default = "./keys/my-creds.json"
 }
@@ -12,7 +12,7 @@ variable "credentials" {
 
 variable "project" { 
   description = "Project"
-  default     = "evident-display-410312"
+  default     = "evident-display-410312" # excluding this line means terraform will ask for project name when you terraform init, which can be preferable
 }
 
 variable "region" {
