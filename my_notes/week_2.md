@@ -2,6 +2,9 @@
 
 - [Data Lakes](#what-is-a-data-lake)
 - [Intro to workflow orchestration](#introduction-to-workflow-orchestration)
+    - [Create Venv and Install Dependencies](#create-venv--install-dependencies)
+    - [Transform Script into a Prefect Flow](#transform-script-into-a-prefect-flow)
+- [ETL with GCP and Prefect](#etl-with-gcp-and-prefect)
 
 
 # What is a Data Lake?
@@ -87,7 +90,7 @@ The requirements.txt file:
 pandas==1.5.2
 prefect==2.7.7
 prefect-sqlalchemy==0.2.2
-prefect-gcp[cloud-storage]==0.2.3
+prefect-gcp[cloud_storage]==0.2.3
 protobuf==4.21.11
 pyarrow=10.0.1
 pandas-gbq==0.18.1
@@ -228,3 +231,79 @@ Here is the output. You'll also see 2 new flow runs (the 'Ingest Flow' and the '
 18:07:46.999 | INFO    | Task run 'load_data-0' - Finished in state Completed()
 18:07:47.049 | INFO    | Flow run 'heavy-jacamar' - Finished in state Completed('All states completed.')
 ```
+
+
+# ETL with GCP and Prefect
+
+### Step 1
+
+ write an ETL script for saving data locally and uploading it to GCP (see [etl_web_to_gcs.py](../02-workflow-orchestration/02_gcp/etl_web_to_gcs.py)).
+
+### Step 2
+
+Create a bucket in GCP. Can use Terraform for this - remember to set GOOGLE_APPLICATION_CREDENTIALS to location of authentication key JSON file.
+
+Bucket created called: dtc_data_lake_evident-display-410312
+
+### Step 3
+
+Run Prefect Server UI from the terminal.
+
+```
+prefect server start
+```
+
+### Step 3
+
+Create a Prefect Block to store our GCP credentials (for generating GCP credentials, see `DE Zoomcamp 1.3.1 - Introduction to Terraform Concepts & GCP Pre-Requisites`), because blocks allow us to reuse configuration with external services, doing it in a secure way.
+
+In the Prefect Orion UI click on "Blocks" and then find the GCS Bucket Block.
+
+Important note: if GCS Bucket is not available, go to the terminal and run:
+
+```bash
+prefect block register -m prefect_gcp
+```
+* This should create a GCS Bucket Block and a GCP Credentials Block
+
+### Step 4
+
+Configure a GCS Bucket Block and a GCP Credentials Block:
+
+**GCS Bucket Block**:
+- Block Name: zoomcamp-gcs
+- Bucket (*add the name of the gcs bucket here*): dtc_data_lake_evident-display-410312
+- Select/Create credentials block (see below)
+    - So the block is created within the GCS Bucket block
+- Hit Create
+- You then get this code snippet (with the caption: Paste this snippet into your flows to use this block.)
+    from prefect_gcp.cloud_storage import GcsBucket
+    gcp_cloud_storage_bucket_block = GcsBucket.load("zoomcamp-gcs")
+
+**GCP Credentials Block**:
+- Block Name: zoomcamp-gcp-credentials
+- Service Account File: /home/USERNAME/.gc/evident-display-410312-6d17d29a1ecf.json
+    - I chose to use the path of the json file that stores my credentials. Could also have pasted the contents directly in the blue box under "The contents of the keyfile as dict".
+
+
+### Step 5
+
+Running `etl_web_to_gcs.py` file where the `write_gcs()` function makes use of the blocks we've created:
+
+```python
+@task()
+def write_gcs(path: Path) -> None:
+    """Uploading local parquet file to GCS"""
+    gcs_block = GcsBucket.load("zooomcamp-gcs")
+    gcs_block.upload_from_path(
+        from_path=path,
+        to_path=path
+    )
+    return
+```
+
+### Step 6
+
+Check the uploaded data in GCP
+
+![Uploaded Data](images/02_03.png)
