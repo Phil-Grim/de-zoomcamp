@@ -5,6 +5,9 @@
     - [Create Venv and Install Dependencies](#create-venv--install-dependencies)
     - [Transform Script into a Prefect Flow](#transform-script-into-a-prefect-flow)
 - [ETL with GCP and Prefect](#etl-with-gcp-and-prefect)
+- [From Cloud Storage to BigQuery](#from-cloud-storage-to-bigquery)
+- [Parameterizing Flows and Deployments](#parameterizing-flows-and-deployments)
+- [Schedules and Docker Storage with Infrastructure](#schedules-and-docker-storage-with-infrastructure)
 
 
 # What is a Data Lake?
@@ -304,6 +307,218 @@ def write_gcs(path: Path) -> None:
 
 ### Step 6
 
-Check the uploaded data in GCP
+Check the uploaded data in GCP - it's now in our data lake 
 
 ![Uploaded Data](images/02_03.png)
+
+# From Cloud Storage to BigQuery
+
+### Step 1
+
+Implement ETL script to extract data from GCS, transform and load it into BigQuery. See [etl_gcs_to_bq.py](../02-workflow-orchestration/02_gcp/etl_gcs_to_bq.py), and especially the function ```write_to_bq``` (note that we are going to use the GcpCredentials that we have just created in the previous section).
+
+### Step 2
+
+Create a table in BigQuery. In my project, I already have a dataset named trips_data_all, which was created using Terraform. For such, in the explorer menu click on the three dots and choose "Create table":
+
+<img src="images/02_04.png" width="320" height="400">
+
+Then fill in the form to create a table using the data we loaded into our bucket
+
+![Creating Table P2](images/02_05.png)
+
+The table is loaded in, with a schema prepopulated with the columns from the parquet file of taxi rides.
+
+### Step 3
+
+Deleted all the rows from this table so that we can test the script from Step 1. The SQL query is as follows:
+
+```sql
+DELETE FROM `evident-display-410312.trips_data_all.yellow_taxi_trips` WHERE TRUE;
+```
+
+### Step 4 
+
+Run etl_gcs_to_bq.py and check that the data is in the BigQuery table (by clicking on our table in BQ and clicking preview)
+
+```python
+python etl_gcs_to_bq.py
+```
+
+### Step 5
+
+Now if we select our table in BgQuery and hit Preview, data from the parquet file has been loaded into the table
+
+![BigQeury table](images/02_06.png)
+
+# Parameterizing Flows and Deployments
+
+### Step 1
+
+We've reimplemented the `etl_web_to_gcs.py` as `parameterized_flow.py`, adding parameters to the `etl_web_to_gcs()` function and adding a parent flow so that the `etl_web_to_gcs()` flow runs for each specified month in the months parameter. Results can be seen in the GCS bucket.
+
+![New files in GCS Bucket](images/02_07.png)
+
+### N.b. Deployments
+
+N.b. make sure the Prefect Server is running as you do the following steps (```prefect server start```  in the terminal)
+
+**[deployment docs](https://docs.prefect.io/latest/concepts/deployments/#deployments-overview)**
+
+Deploying a flow to Prefect provides it with a Deployment Definition - Prefect will know if e.g. it runs on a schedule; it needs to be run with certain infrastructure like Kubernetes, or Docker; maybe the flow code isn't stored locally anymore (but e.g. on Docker, Github) and so needs to be deployed to Prefect.
+
+You can multiple deployments for a single flow:
+* Now that our flow code is parameterized, one flow may be deployed for the color "green", or for the months 8, 9, 10, etc.
+
+### Step 2
+
+So far, we've run our scripts from the terminal. We want to know deploy the workflow using Prefect in order to avoid the need to trigger the workflow manually. In the terminal, we run the command shown below, which outputs a YAML file containing the workflow's deployment metadata.
+- You can also create a deployment using Python (see future video)
+
+```bash
+prefect deployment build ./parameterized_flow.py:etl_parent_flow -n "Parameterized ETL"
+```
+* parameterized_flow -> the file name
+* etl_parent_flow -> the entry point to the flow
+* "Parameterized ETL" -> the deployment name
+
+The output deployment apply etl_parent_flow-deployment.yaml file:
+
+```yaml
+###
+### A complete description of a Prefect Deployment for flow 'etl-parent-flow'
+###
+name: Parameterized ETL
+description: null
+version: 261cf127093cccb2e0f4fca5892dd9e2
+# The work queue that will handle this deployment's runs
+work_queue_name: default
+work_pool_name: null
+tags: []
+parameters: { "color": "yellow", "months": [1, 2, 3], "year": 2021 }
+schedule: null
+is_schedule_active: null
+infra_overrides: {}
+infrastructure:
+  type: process
+  env: {}
+  labels: {}
+  name: null
+  command: null
+  stream_output: true
+  working_dir: null
+  block_type_slug: process
+  _block_type_slug: process
+
+###
+### DO NOT EDIT BELOW THIS LINE
+###
+flow_name: etl-parent-flow
+manifest_path: null
+storage: null
+path: /home/USERNAME/de-zoomcamp/02-workflow-orchestration/02_gcp
+entrypoint: parameterized_flow.py:etl_parent_flow
+parameter_openapi_schema:
+  title: Parameters
+  type: object
+  properties:
+    months:
+      title: months
+      default:
+      - 1
+      - 2
+      position: 0
+      type: array
+      items:
+        type: integer
+    year:
+      title: year
+      default: 2021
+      position: 1
+      type: integer
+    color:
+      title: color
+      default: yellow
+      position: 2
+      type: string
+  required: null
+  definitions: null
+timestamp: '2024-01-15T14:23:56.779664+00:00'
+triggers: []
+```
+
+### Step 3
+
+Can see that in the above .yaml file the parameters are empty in the description of the Prefect Deployment (as we didn't pass any parameters in when we built the deployment)
+
+We can edit the metadata in this .yaml file to add the parameters we want (can also change the parameters in the prefect server UI)
+
+```yaml
+parameters : { "color": "yellow", "months": [1, 2, 3], "year": 2021 }
+```
+
+### Step 4
+
+Create the deployment on the API
+
+```bash
+prefect deployment apply etl_parent_flow-deployment.yaml
+```
+
+You can now see the deployment in the Prefect Server UI
+
+![Prefect Server Deployment View](images/02_08.png)
+
+### Step 5
+
+Trigger a quick run from the UI
+
+![Quick Run - Prefect Deployment](images/02_09.png)
+
+### Step 6
+
+After triggering a quick run, the deployment will show as "Scheduled" (and then "Late"). To deploy this workflow for execution, we need an agent.
+
+Agents consist of lightweight Python processes in our execution environment. They pick up scheduled workflow runs from Work Queues (found within Work Pools on the UI).
+
+Work Queues coordinate many deployments with many agents by collecting scheduled workflow runs for deployment according to some filtering criteria.
+
+Some nice references for better understanding the roles of Agents and Work Queues are: [Agents and Work Queues (Prefect docs)](https://docs.prefect.io/concepts/work-queues/) and [What’s the role of agents and work queues, and how the concept of agents differ between Prefect 1.0 and 2.0?](https://discourse.prefect.io/t/whats-the-role-of-agents-and-work-queues-and-how-the-concept-of-agents-differ-between-prefect-1-0-and-2-0/689)
+
+We launch an agent with the following command. The agent will automatically run our scheduled workflow.
+```
+prefect agent start --pool "default-agent-pool" --work-queue "default"
+```
+
+### Step 7
+
+Setting up Notifications for these runs - now that we can trigger flow runs via deployments rather than manually.
+
+In the UI, go to the Notification tab, and you can set up a notification based on various criteria.
+
+There are a couple of other ways you can set up notifications:
+* Via a collection - you can include it in your code after you've imported the relevant collection
+* Using blocks
+
+# Schedules and Docker Storage with Infrastructure
+
+## Scheduling Flows
+
+In the Prefect Server UI, there is a scheduling option for deployments.
+
+After scheduling, our workflow will be run according to our rule as long as we have an agent to pick it up + a Prefect Server serving it (or use prefect cloud, which is always running - just need an agent in that case). Alternatively, we can also use the set the --cron parameter during deployment.
+
+```bash
+prefect deployment build parameterized_flow.py:etl_parent_flow -n etl2 --cron "0 0 * * *" -a
+```
+
+The result of the command above is shown in the figure below ("At 12:00 AM every day").
+
+## Running Flows in Docker Containers 
+
+Currently have our code sitting locally - to make it more production ready, so that other people can access it, we could put it on github on another version control website, or we could store our code in a Docker image and put it up on Docker Hub. 
+* Then when we run a docker container, the code will be accessible
+
+### Step 1
+
+Create Dockerfile
