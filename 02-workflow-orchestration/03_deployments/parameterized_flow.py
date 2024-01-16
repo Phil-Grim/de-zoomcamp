@@ -2,11 +2,12 @@ from pathlib import Path # useful for dealing with filepaths
 import pandas as pd
 from prefect import flow, task
 from prefect_gcp.cloud_storage import GcsBucket
-from prefect.tasks import task_input_hash
+# from prefect.tasks import task_input_hash
 from datetime import timedelta
 from typing import List
 
-@task(log_prints=True, retries=3, cache_key_fn=task_input_hash, cache_expiration=timedelta(days=1))
+# @task(log_prints=True, retries=3, cache_key_fn=task_input_hash, cache_expiration=timedelta(days=1))
+@task(log_prints=True, retries=3)
 def fetch(url: str) -> pd.DataFrame:
     """Read data from web into pandas"""
 
@@ -63,6 +64,6 @@ def etl_parent_flow(
 
 if __name__ == '__main__':
     color = "yellow"
-    months = [1,2,3]
+    months = [1,2,3, 4, 5, 6, 7]
     year = 2021
     etl_parent_flow(months, year, color)
