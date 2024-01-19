@@ -625,6 +625,130 @@ where rn = 1
 
 # Deploying a DBT project
 
+## Deployment basics
+
+The goal of dbt is to introduce good software engineering practices by defining a ***deployment workflow***.
+
+![deployment workflow](images/04_04.png)
+
+So far we've seen the Develop, Test And Document stages of the workflow. We will now cover ***deployment***.
+
+***Deployment*** is the process of running the models we created in our development environment in a ***production environment***. Separating the development and production environments allows us to continue building and testing models without affecting the models in production.
+
+Normally, a production environment will have a different schema in our Data Warehouse and ideally a different user.
+
+The ***deployment workflow*** defines the steps used to create a model from scratch and bring it to production. Here's a deployment workflow example:
+1. Develop in a user branch.
+1. Open a PR to merge into the main branch.
+1. Merge the user branch to the main branch.
+1. Run the new models in the production environment using the main branch.
+1. Schedule the models.
+
+dbt projects are usually deployed in the form of ***jobs***:
+* A ***job*** is a collection of _commands_ such as `build` or `test`. A job may contain one or more commands.
+* Jobs can be triggered manually or on schedule.
+    * dbt Cloud has a scheduler which can run jobs for us, but other tools such as Airflow or cron can be used as well.
+* Each job will keep a log of the runs over time, and each run will keep the logs for each command.
+* A job may also be used to generate documentation, which may be viewed under the run information.
+* If the `dbt source freshness` command was run, the results can also be viewed at the end of a job.
+
+## Continuous Integration
+
+Another good software engineering practice that dbt enables is ***Continuous Integration*** (CI): the practice of regularly merging development branches into a central repository, after which automated builds and tests are run. The goal of CI is to reduce adding bugs to the production code and maintain a more stable project.
+
+CI is built on jobs: a CI job will do things such as build, test, etc. We can define CI jobs which can then be triggered under certain circunstances to enable CI.
+
+dbt makes use of GitHub/GitLab's Pull Requests to enable CI via [webhooks](https://www.wikiwand.com/en/Webhook). When a PR is ready to be merged, a webhook is received in dbt Cloud that will enqueue a new run of a CI job. This run will usually be against a temporary schema that has been created explicitly for the PR. If the job finishes successfully, the PR can be merged into the main branch, but if it fails the merge will not happen.
+
+CI jobs can also be scheduled with the dbt Cloud scheduler, Airflow, cron and a number of additional tools.
+
+## Deployment using dbt Cloud
+
+In dbt Cloud, you might have noticed that after the first commit, the `main` branch becomes read-only and forces us to create a new branch if we want to keep developing. dbt Cloud does this to enforce us to open PRs for CI purposes rather than allowing merging to `main` straight away.
+* dbt allows us to enable CI on pull requests
+* This is enab;ed via webhooks from GitHub or GitLab. When a Pull Request is ready to be merged, a webhook is received in dbt Cloud that will queue up a new run of the specified job. 
+* The run of the CI job will be against a temporary schema, and no PR will be able to be merged unless the run has bee completed successfully
+
+In order to properly establish a deployment workflow, we must define ***environments*** within dbt Cloud. In the sidebar, under _Environments_, you will see that a default _Development_ environment is already generated, which is the one we've been using so far.
+
+We will create a new _Production_ environment of type _Deployment_ using the latest stable dbt version (`v1.0` at the time of writing these notes). By default, the environment will use the `main` branch of the repo but you may change it for more complex workflows. If you used the JSON credentials when setting up dbt Cloud then most of the deployment credentials should already be set up except for the dataset. For this example, we will use the `production` dataset (make sure that the `production` dataset/schema exists in your BigQuery project) - so the models will be created in this dataset in BigQuery.
+
+The dbt Cloud scheduler is available in the _Jobs_ menu in the sidebar. We will create a new job with name `dbt build` using the _Production_ environment, we will check the _Generate docs?_ checkbox. Add the following commands:
+
+1. `dbt seed`
+1. `dbt run`
+1. `dbt test`
+
+In the _Schedule_ tab at the bottom we will check the _Run on schedule?_ checkbox with a timing of _Every day_ and _every 6 hours_. Save the job. You will be shown the job's run history screen which contains a _Run now_ buttom that allows us to trigger the job manually; do so to check that the job runs successfully.
+
+You can access the run and check the current state of it as well as the logs. After the run is finished, you will see a _View Documentation_ button at the top; clicking on it will open a new browser window/tab with the generated docs.
+
+Under _Account settings_ > _Projects_, you may edit the project in order to modify the _Documentation_ field under _Artifacts_; you should see a drop down menu which should contain the job we created which generates the docs. After saving the changes and reloading the dbt Cloud website, you should now have a _Documentation_ section in the sidebar.
+
+The successful run:
+
+![Successful DBT run](images/04_05.png)
+
+## Deployment using dbt Core (local)
+
+In dbt Core, environments are defined in the `profiles.yml` file. Assuming you've defined a ***target*** (an environment) called `prod`, you may build your project agains it using the `dbt build -t prod` command.
+
+You may learn more about how to set up the `profiles.yml` file [in this link](https://docs.getdbt.com/dbt-cli/configure-your-profile).
+
+# Data Visualisation
+
+## Looker (formerly Google Data Studio)
+
+[Looker](https://datastudio.google.com/) is an online tool for converting data into ***reports*** and ***dashboards***.
+
+In first place we will create a ***Data Source***. Looker supports multiple sources including BigQuery. After authorizing Looker to access BigQuery, we will be able to select our project and datasets. We will connect to our `production.fact_trips` schema.
+
+After creating the data source, a new window will open with the _dimensions_ (table columns), the type of each dimension and the default aggregation for each dimension. You may change the default aggregation as you see fit for each dimension.
+
+A ***Report*** is essentially an empty canvas which can be filled with can be filled with different widgets. The widgets that display data are called ***Charts***; widgets that modify the behavior of other charts are called ***Controls***. There are additional widgets for text, images and other elements to help improve the looks and readability of the report.
+
+We will now create a new report by clicking on the _Create report_ button at the top of the Data Source window. A new window will open which will allow us to design our own custom report. An example table is already provided but you may delete it because we will be creating our own from scratch.
+
+Add the first widget to the report. We want to show the amount of trips per day, so we'll choose a _Time Series Chart_. Looker will pick up the most likely dimensions for the chart, which for `fact_trips` happens to be `pickup_datetime`, but we need to add an additional dimension for breaking down the data, so we will drag an drop `service_type` into the widget sidebar, which should update with 2 lines, one for yellow taxi and another one for green taxi data. You may also move and resize the chart.
+
+![time series chart](images/04_06.png)
+
+You may notice that the vast majority of trips are concentrated in a small interval; this is due to dirty data which has bogus values for `pickup_datetime`. We can filter out these bogus values by adding a _Date Range Control_, which we can drag and drop anywhere in the report, and then set the start date to January 1st 2019 and the end date to December 31st 2020.
+
+![date range control](images/04_07.png)
+
+>Note: Controls affect all the Charts in the report.
+
+Clicking on a chart will open the chart's sidebar with 2 tabs: the _Data_ tab contains all the specifics of the data to be displayed and the _Style_ tab allows us to change the appearance of the chart.
+
+You may also add a text widget as a title for the chart.
+
+We will now add a _Scorecard With Compact Numbers_ with the total record count in `fact_trips`, a _Pie chart_ displaying the `service_type` dimension using the record count metric and a _Table With Heatmap_ using `pickup_zone` as its dimension.
+
+We will also add a _Stacked Column Bar_ showing trips per month. Since we do not have that particular dimension, what we can do instead is to create a new field that will allow us to filter by month:
+1. In the _Available Fields_ sidebar, click on _Add a field_ at the bottom.
+1. Name the new field `pickup_month`.
+1. In the _Formula_ field, type `MONTH(pickup_datetime)`.
+1. Click on _Save_ and then on _Done_.
+1. Back in the main page, drag the new `pickup_month` field from the _Available fields_ sidebar to the _Dimension_ field in the _Data_ sidebar. Get rid of all breakdown dimensions.
+
+Our bar chart will now display trips per month but we still want to discriminate by year:
+
+1. Add a new field and name it `pickup_year`.
+1. Type in the formula `YEAR(pickup_datetime)`.
+1. Click on _Save_ and _Done_.
+1. Add the `pickup_year` field as a breakdown dimension for the bar chart.
+1. Change the _Sort_ dimension to `pickup_month` and make it ascending.
+
+Finally, we will add a _Drop-Down List Control_ and drag the `service_type` dimension to _Control field_. The drop-down control will now allow us to choose yellow, green or both taxi types. We will also rename the report to _Trips analysis years 2019-2020_.
+
+![final report](images/04_08.png)
+
+You may click on the _View_ button at the top to check how the shared report will look to the stakeholders. Sharing the report works similarly to Google Drive document sharing.
+
+
+
+
 
 
 
