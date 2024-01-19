@@ -534,4 +534,97 @@ Here, you can see the data lineage across the models we've built up to this poin
 
 >Note: running `dbt run` will run all models but NOT the seeds. The `dbt build` can be used instead to run all seeds and models as well as tests, which we will cover later. Additionally, running `dbt run --select my_model` will only run the model itself, but running `dbt run --select +my_model` will run the model as well as all of its dependencies.
 
+# Testing and documenting dbt models
+
+Testing and documenting are not required steps to successfully run models, but they are expected in any professional setting.
+
+## Testing
+
+Tests in dbt are ***assumptions*** that we make about our data.
+
+In dbt, tests are essentially a `SELECT` query that will return the amount of records that fail because they do not follow the assumption defined by the test.
+
+Tests are defined on a column in the model YAML files (like the `schema.yml` file we defined before). dbt provides a few predefined tests to check column values but custom tests can also be created as queries. Here's an example test:
+
+```yaml
+models:
+  - name: stg_yellow_tripdata
+    description: >
+        Trips made by New York City's iconic yellow taxis. 
+    columns:
+        - name: tripid
+        description: Primary key for this table, generated with a concatenation of vendorid+pickup_datetime
+        tests:
+            - unique:
+                severity: warn
+            - not_null:
+                severrity: warn
+```
+* The tests are defined for a column in a specific table for a specific model.
+* There are 2 tests in this YAML file: `unique` and `not_null`. Both are predefined by dbt.
+* `unique` checks whether all the values in the `tripid` column are unique.
+* `not_null` checks whether all the values in the `tripid` column are not null.
+* Both tests will return a warning in the command line interface if they detect an error.
+* 2 other tests that dbt provides:
+    * Accepted values (you can provide a list of accepted values and check that the values in a column are all in that list)
+    * Foreign key to another table
+
+Here's wwhat the `not_null` will compile to in SQL query form:
+
+```sql
+select *
+from "my_project"."dbt_dev"."stg_yellow_tripdata"
+where tripid is null
+```
+
+You may run tests with the `dbt test` command.
+
+## Documentation
+
+dbt also provides a way to generate documentation for your dbt project and render it as a website.
+
+You may have noticed in the previous code block that a `description:` field can be added to the YAML field. dbt will make use of these fields to gather info.
+
+The dbt generated docs will include the following:
+* Information about the project:
+    * Model code (both from the .sql files and compiled code)
+    * Model dependencies
+    * Sources
+    * Auto generated DAGs from the `ref()` and `source()` macros
+    * Descriptions from the .yml files and tests
+* Information about the Data Warehouse (`information_schema`):
+    * Column names and data types
+    * Table stats like size and rows
+
+dbt docs can be generated on the cloud or locally with `dbt docs generate`, and can be hosted in dbt Cloud as well or on any other webserver with `dbt docs serve`.
+
+
+**Note:**
+
+Amended the code in `stg_green_tripdata` and `stg_yellow_tripdata.sql` to account for potential duplicates in the source data - the csvs for yellow and green taxi rides:
+
+```sql
+with tripdata as 
+(
+  select *,
+    row_number() over(partition by cast(vendorid as integer), tpep_pickup_datetime) as rn
+  from {{ source('staging','yellow_tripdata') }}
+  where vendorid is not null 
+)
+```
+* This goes at the top of the code, as a CTE
+* You then use the same select statement as before, and just amend the FROM statement
+* cast vendorid as an integer because partitioning by expressions of type float not allowed
+
+```sql
+from tripdata
+where rn = 1
+```
+* The idea is that if there are any duplicate rows (with the same vendorid and tpep_pickup_datetime), the duplicates will have an rn that is 2,3 etc. and thus will be filtered out of the final select statement.
+
+
+# Deploying a DBT project
+
+
+
 
