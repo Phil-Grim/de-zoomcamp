@@ -79,7 +79,7 @@ conda activate zoomcamp
 To leave the environment:
 
 ```bash
-source deactivate
+conda deactivate
 ```
 
 See requirements.txt for the dependencies

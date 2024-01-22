@@ -6,18 +6,20 @@ This document assumes you already have python.
 To run PySpark, we first need to add it to `PYTHONPATH`:
 
 ```bash
-export PYTHONPATH="${SPARK_HOME}/python/:$PYTHONPATH"
-export PYTHONPATH="${SPARK_HOME}/python/lib/py4j-0.10.9-src.zip:$PYTHONPATH"
+export PYTHONPATH="${SPARK_HOME}/python/:$PYTHONPATH" 
+export PYTHONPATH="${SPARK_HOME}/python/lib/py4j-0.10.9.7-src.zip:$PYTHONPATH"
 ```
 
 Make sure that the version under `${SPARK_HOME}/python/lib/` matches the filename of py4j or you will
 encounter `ModuleNotFoundError: No module named 'py4j'` while executing `import pyspark`.
 
 For example, if the file under `${SPARK_HOME}/python/lib/` is `py4j-0.10.9.3-src.zip`, then the
-`export PYTHONPATH` statement above should be changed to
+`export PYTHONPATH` statement above should be changed to.
+
+In my installation, it's: `py4j-0.10.9.7-src.zip`
 
 ```bash
-export PYTHONPATH="${SPARK_HOME}/python/lib/py4j-0.10.9.3-src.zip:$PYTHONPATH"
+export PYTHONPATH="${SPARK_HOME}/python/lib/py4j-0.10.9.7-src.zip:$PYTHONPATH"
 ```
 
 
@@ -52,3 +54,5 @@ Test that writing works as well:
 ```python
 df.write.parquet('zones')
 ```
+
+Add 4040 to ports. localhost:4040 should show the interface for Spark master, where you can see all the jobs that we've executed 

@@ -5,12 +5,19 @@ Here we'll show you how to install Spark 3.3.2 for Linux.
 We tested it on Ubuntu 20.04 (also WSL), but it should work
 for other Linux distros as well
 
+Make a spark subdirectory from the home folder and install packages to there:
+
+```bash
+mkdir spark
+cd spark
+```
 
 ### Installing Java
 
 Download OpenJDK 11 or Oracle JDK 11 (It's important that the version is 11 - spark requires 8 or 11)
 
-We'll use [OpenJDK](https://jdk.java.net/archive/)
+
+We'll use [OpenJDK](https://jdk.java.net/archive/). Used 11.0.1
 
 Download it (e.g. to `~/spark`):
 
@@ -21,13 +28,13 @@ wget https://download.java.net/java/GA/jdk11/9/GPL/openjdk-11.0.2_linux-x64_bin.
 Unpack it:
 
 ```bash
-tar xzfv openjdk-11.0.2_linux-x64_bin.tar.gz
+tar xzfv openjdk-11.0.1_linux-x64_bin.tar.gz
 ```
 
 define `JAVA_HOME` and add it to `PATH`:
 
 ```bash
-export JAVA_HOME="${HOME}/spark/jdk-11.0.2"
+export JAVA_HOME="${HOME}/spark/jdk-11.0.1"
 export PATH="${JAVA_HOME}/bin:${PATH}"
 ```
 
@@ -40,15 +47,28 @@ java --version
 Output:
 
 ```
-openjdk 11.0.2 2019-01-15
-OpenJDK Runtime Environment 18.9 (build 11.0.2+9)
-OpenJDK 64-Bit Server VM 18.9 (build 11.0.2+9, mixed mode)
+openjdk 11.0.1 2018-10-16
+OpenJDK Runtime Environment 18.9 (build 11.0.1+13)
+OpenJDK 64-Bit Server VM 18.9 (build 11.0.1+13, mixed mode)
+
+```
+
+The command:
+
+```bash
+which java
+```
+
+Gives an output:
+
+```
+/home/USERNAME/spark/jdk-11.0.1/bin/java
 ```
 
 Remove the archive:
 
 ```bash
-rm openjdk-11.0.2_linux-x64_bin.tar.gz
+rm openjdk-11.0.1_linux-x64_bin.tar.gz
 ```
 
 ### Installing Spark
@@ -61,27 +81,53 @@ wget https://dlcdn.apache.org/spark/spark-3.3.2/spark-3.3.2-bin-hadoop3.tgz
 
 ```
 
+N.b. I used 3.4.2: 
+- https://dlcdn.apache.org/spark/spark-3.4.2/spark-3.4.2-bin-hadoop3.tgz
+- 3.3.2 no longer up on [this site](https://spark.apache.org/downloads.html)
+- As I'm using python 3.11, needed Spark 3.4 otherwise certain operations won't work 
+
 Unpack:
 
 ```bash
-tar xzfv spark-3.3.2-bin-hadoop3.tgz
+tar xzfv spark-3.4.2-bin-hadoop3.tgz
 ```
 
 Remove the archive:
 
 ```bash
-rm spark-3.3.2-bin-hadoop3.tgz
+rm spark-3.4.2-bin-hadoop3.tgz
 ```
 
 Add it to `PATH`:
 
 ```bash
-export SPARK_HOME="${HOME}/spark/spark-3.3.2-bin-hadoop3"
+export SPARK_HOME="${HOME}/spark/spark-3.4.2-bin-hadoop3"
 export PATH="${SPARK_HOME}/bin:${PATH}"
 ```
 
-### Testing Spark
+Save export commands to .bashrc () so they don't have to be typed every time you log in to the computer.
 
+Run in the home directory:
+
+```bash
+nano .bashrc
+```
+
+Then edit the file:
+
+```
+export JAVA_HOME="${HOME}/spark/jdk-11.0.1"
+export PATH="${JAVA_HOME}/bin:${PATH}"
+
+export SPARK_HOME="${HOME}/spark/spark-3.4.2-bin-hadoop3"
+export PATH="${SPARK_HOME}/bin:${PATH}"
+```
+
+Run `source ~/.bashrc` to apply the changes to your current shell
+
+
+### Testing Spark
+ 
 Execute `spark-shell` and run the following:
 
 ```scala
