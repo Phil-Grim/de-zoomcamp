@@ -2,8 +2,38 @@ N.b. Project from this week is held within the `taxi_rides_ny_bq` subdirectory
 
 ### Table of Contents
 
-
-
+- [Introducton to Analytics Engineering](#introduction-to-analytics-engineering)
+    - [What is Analytics Engineering](#what-is-analytics-engineering)
+    - [Data Modeling Concepts](#data-modeling-concepts)
+        - [ETL v ELT](#etl-v-elt)
+        - [Dimensional Modeling](#dimensional-modeling)
+- [Introduction to DBT](#introduction-to-dbt)
+    - [What is DBT](#what-is-dbt)
+    - [How does DBT work](#how-does-dbt-work)
+    - [How to use dbt](#how-to-use-dbt)
+- [Setting up DBT](#setting-up-dbt)
+    - [Updating BigQuery Dataset](#updating-bigquery-dataset)
+    - [Establishing connection between BigQuery/Github and DBT + Initialising Project](#establishing-connection-between-bigquerygithub-and-dbt--initialising-project)
+    - [Using DBT Core](#using-dbt-core)
+- [Developing with DBT](#developing-with-dbt)
+    - [Anatomy of a DBT model](#anatomy-of-a-dbt-model)
+    - [The From Clause](#the-from-clause)
+    - [Defining a Source and creating a Model](#defining-a-source-and-creating-a-model)
+    - [Macros](#macros)
+    - [Packages](#packages)
+    - [Variables](#variables)
+    - [Creating and Using DBT seed / Unioning the two staging models](#creating-and-using-dbt-seed--unioning-the-two-staging-models)
+- [Testing and Documenting DBT models](#testing-and-documenting-dbt-models)
+    - [Testing](#testing)
+    - [Documentation](#documentation)
+- [Deploying a DBT project](#deploying-a-dbt-project)
+    - [Deployment Basics](#deployment-basics)
+    - [Continuous Integration](#continuous-integration)
+    - [Deployment Using DBT Cloud](#deployment-using-dbt-cloud)
+    - [Deployment using dbt Core (local)](#deployment-using-dbt-core-local)
+- [Data Visualisation](#data-visualisation)
+    - [Looker](#looker-formerly-google-data-studio)
+    - [Metabase](#metabase)
 
 # Introduction to Analytics Engineering
 
@@ -745,6 +775,21 @@ Finally, we will add a _Drop-Down List Control_ and drag the `service_type` dime
 ![final report](images/04_08.png)
 
 You may click on the _View_ button at the top to check how the shared report will look to the stakeholders. Sharing the report works similarly to Google Drive document sharing.
+
+## Metabase
+
+GDS cannot be used for local databases. If you're developing locally, you may use the [Open Source Edition](https://www.metabase.com/start/oss/) of [Metabase](https://www.metabase.com/).
+
+You may run Metabase on Docker or running a local JAR file. The main UI is a website for which a username and a database connection must be provided.
+
+In Metabase, charts are called ***questions***. Questions have 3 components:
+* ***Data***: the data we will use for the question. Multiple data sources can be configured as well as custom columns that allow us to apply formulas to regular columns.
+* ***Filters***: reduces the amount of records to use in the question by defining criteria for qualification, such as specific time periods.
+* ***Summarize***: contains predefined aggregations and formulas to manipulate the results, such as counting records by specific dates. Custom summarization formulas can also be defined.
+
+Once the 3 components have been defined, a preview will be shown. Once you're ready, you may click the _Visualize_ button to generate the chart.
+
+Questions can be saved in _collections_ and displayed in _dashboards_.
 
 
 
