@@ -128,7 +128,7 @@ Run `source ~/.bashrc` to apply the changes to your current shell
 
 ### Testing Spark
  
-Execute `spark-shell` and run the following:
+Execute `spark-shell` and run the following: 
 
 ```scala
 val data = 1 to 10000

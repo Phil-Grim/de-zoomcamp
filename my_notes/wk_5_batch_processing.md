@@ -152,7 +152,7 @@ Using Jupyter Notebooks. Before running `jupter notebook` in the terminal, run t
 
 ```
 export PYTHONPATH="${SPARK_HOME}/python/:$PYTHONPATH" 
-export PYTHONPATH="${SPARK_HOME}/python/lib/py4j-0.10.9.5-src.zip:$PYTHONPATH"
+export PYTHONPATH="${SPARK_HOME}/python/lib/py4j-0.10.9.7-src.zip:$PYTHONPATH"
 ```
 - see [pyspark.md](../05-batch/setup/pyspark.md) for more info on this
 
