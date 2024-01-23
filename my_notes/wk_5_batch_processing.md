@@ -9,6 +9,17 @@
     - [Pros and Cons of Batch Jobs](#pros-and-cons-of-batch-jobs)
 - [Introduction to Spark](#introduction-to-spark)
     - [What is Spark](#what-is-spark)
+    - [Why do we need Spark?](#why-do-we-need-spark)
+- [Installing Spark](#installing-spark)
+- [First Look at Spark/PySpark](#first-look-at-sparkpyspark)
+    - [Initial Set Up](#initial-set-up)
+    - [Creating a Spark Session](#creating-a-spark-session)
+    - [Reading CSV files](#reading-csv-files)
+    - [Partitions](#partitions)
+    - [Spark Dataframes](#spark-dataframes)
+    - [Actions and Transformations](#actions-and-transformations)
+    - [Functions and UDFs](#functions-and-user-defined-functions-udfs)
+- [Preparing Yellow and Green Taxi Data]
 
 # Introduction to Spark
 
@@ -154,6 +165,8 @@ Using Jupyter Notebooks. Before running `jupter notebook` in the terminal, run t
 export PYTHONPATH="${SPARK_HOME}/python/:$PYTHONPATH" 
 export PYTHONPATH="${SPARK_HOME}/python/lib/py4j-0.10.9.7-src.zip:$PYTHONPATH"
 ```
+Don't want to save these to our .bashrc file because we typically don't want to first search for the python version located in our spark installation. So we run these two commands each time we plan on using pyspark in our jupyter notebook.
+
 - see [pyspark.md](../05-batch/setup/pyspark.md) for more info on this
 
 Then run `jupyter notebook` and open up a notebook in your browser
@@ -162,7 +175,247 @@ Then run `jupyter notebook` and open up a notebook in your browser
 
 In your notebook - using [04_pyspark](../05-batch/code/04_pyspark.ipynb)
 
+We first need to import PySpark to our code:
+
+```python
+import pyspark
+from pyspark.sql import SparkSession
+```
+
+We now need to instantiate a ***Spark session***, an object that we use to interact with Spark.
+
+```python
+spark = SparkSession.builder \
+    .master("local[*]") \
+    .appName('test') \
+    .getOrCreate()
+```
+* `SparkSession` is the class of the object that we instantiate. `builder` is the builder method.
+* `master()` sets the Spark _master URL_ to connect to. The `local` string means that Spark will run on a local cluster. `[*]` means that Spark will run with as many CPU cores as possible.
+* `appName()` defines the name of our application/session. This will show in the Spark UI.
+* `getOrCreate()` will create the session or recover the object if it was previously created.
+
+Once we've instantiated a session, we can access the **Spark UI by browsing to `localhost:4040`** (Spark master). The UI will display all current jobs. Since we've just created the instance, there should be no jobs currently running.
+
+## Reading CSV files
+
+Still using [04_pyspark](../05-batch/code/04_pyspark.ipynb)
+
+Similarlly to Pandas, Spark can read CSV files into ***dataframes***, a tabular data structure. Unlike Pandas, Spark can handle much bigger datasets but it's unable to infer the datatypes of each column.
+
+>Note: Spark dataframes use custom data types; we cannot use regular Python types.
+
+For this example we will use the High Volume For-Hire Vehicle Trip Records for January 2021 available from https://github.com/DataTalksClub/nyc-tlc-data/releases/tag/fhvhv. The file should be about 720MB in size.
+
+Let's read the file and create a dataframe:
+
+```python
+df = spark.read \
+    .option("header", "true") \
+    .csv('fhvhv_tripdata_2021-01.csv')
+```
+* `read()` reads the file.
+* `option()` contains options for the `read` method. In this case, we're specifying that the first line of the CSV file contains the column names.
+* `csv()` is for readinc CSV files.
+
+You can see the contents of the dataframe with `df.show()` (only a few rows will be shown) or `df.head()`. You can also check the current schema with `df.schema`; you will notice that all values are strings.
+
+We can use a trick with Pandas to infer the datatypes:
+1. Create a smaller CSV file with the first 1000 records or so.
+1. Import Pandas and create a Pandas dataframe. This dataframe will have inferred datatypes.
+1. Create a Spark dataframe from the Pandas dataframe and check its schema.
+    ```python
+    spark.createDataFrame(my_pandas_dataframe).schema
+    ```
+1. Based on the output of the previous method, import `types` from `pyspark.sql` and create a `StructType` containing a list of the datatypes.
+    ```python
+    from pyspark.sql import types
+    schema = types.StructType([...])
+    ```
+    * `types` contains all of the available data types for Spark dataframes.
+1. Create a new Spark dataframe and include the schema as an option.
+    ```python
+    df = spark.read \
+        .option("header", "true") \
+        .schema(schema) \
+        .csv('fhvhv_tripdata_2021-01.csv')
+    ```
+
+## Partitions
+
+Still using [04_pyspark](../05-batch/code/04_pyspark.ipynb)
+
+A ***Spark cluster*** is composed of multiple ***executors***. Each executor can process data independently in order to parallelize and speed up work.
+
+In the previous example we read a single large CSV file. A file can only be read by a single executor, which means that the code we've written so far isn't parallelized and thus will only be run by a single executor rather than many at the same time.
+
+In order to solve this issue, we can _split a file into multiple parts_ so that each executor can take care of a part and have all executors working simultaneously. These splits are called ***partitions***.
+
+We will now read the CSV file, partition the dataframe and parquetize it. This will create multiple files in parquet format.
+
+>Note: converting to parquet is an expensive operation which may take several minutes.
+
+```python
+# create 24 partitions in our dataframe
+df = df.repartition(24)
+# parquetize and write to fhvhv/2021/01/ folder
+df.write.parquet('fhvhv/2021/01/')
+```
+
+You may check the Spark UI at any time and see the progress of the current job, which is divided into stages which contain tasks. The tasks in a stage will not start until all tasks on the previous stage are finished.
+
+When creating a dataframe, Spark creates as many partitions as CPU cores available by default, and each partition creates a task. Thus, assuming that the dataframe was initially partitioned into 6 partitions, the `write.parquet()` method will have 2 stages: the first with 6 tasks and the second one with 24 tasks.
+
+Besides the 24 parquet files, you should also see a `_SUCCESS` file which should be empty. This file is created when the job finishes successfully.
+
+Trying to write the files again will output an error because Spark will not write to a non-empty folder. You can force an overwrite with the `mode` argument:
+
+```python
+df.write.parquet('fhvhv/2021/01/', mode='overwrite')
+```
+
+The opposite of partitioning (joining multiple partitions into a single partition) is called ***coalescing***.
+
+## Spark DataFrames
+
+Still using [04_pyspark](../05-batch/code/04_pyspark.ipynb)
+
+We can create a dataframe from the parquet files we created in the previous section:
+
+```python
+df = spark.read.parquet('fhvhv/2021/01/')
+```
+
+Unlike CSV files, parquet files contain the schema of the dataset, so there is no need to specify a schema like we previously did when reading the CSV file. You can check the schema like this:
+
+```python
+df.printSchema()
+```
+
+(One of the reasons why parquet files are smaller than CSV files is because they store the data according to the datatypes, so integer values will take less space than long or string values.)
+
+There are many Pandas-like operations that we can do on Spark dataframes, such as:
+* Column selection - returns a dataframe with only the specified columns.
+    ```python
+    new_df = df.select('pickup_datetime', 'dropoff_datetime', 'PULocationID', 'DOLocationID')
+    ```
+* Filtering by value - returns a dataframe whose records match the condition stated in the filter.
+    ```python
+    new_df = df.select('pickup_datetime', 'dropoff_datetime', 'PULocationID', 'DOLocationID').filter(df.hvfhs_license_num == 'HV0003')
+    ```
+* And many more. The official Spark documentation website contains a [quick guide for dataframes](https://spark.apache.org/docs/latest/api/python/getting_started/quickstart_df.html).
+    * e.g. groupby
+    * Often easier to do these types of transformations using SQL though - but spark is more flexible, and gives for e.g. UDFs (see below)
+
+## Actions and Transformations
+
+Some Spark methods are "lazy", meaning that they are not executed right away. You can test this with the last instructions we run in the previous section: after running them, the Spark UI will not show any new jobs. However, running `df.show()` right after will execute right away and display the contents of the dataframe; the Spark UI will also show a new job.
+
+These lazy commands are called ***transformations*** and the eager commands are called ***actions***. Computations only happen when actions are triggered.
+```python
+df.select(...).filter(...).show()
+```
+```mermaid
+graph LR;
+    a(df)-->b["select()"]
+    b-->c["filter()"]
+    c-->d{{"show()"}}
+    style a stroke-dasharray: 5
+    style d fill:#900, stroke-width:3px
+```
+Both `select()` and `filter()` are _transformations_, but `show()` is an _action_. The whole instruction gets evaluated only when the `show()` action is triggered.
+
+List of transformations (lazy):
+* Selecting columns
+* Filtering
+* Joins
+* Group by
+* Partitions
+* ...
+
+List of actions (eager):
+* Show, take, head
+* Write, read
+* ...
+
+## Functions and User Defined Functions (UDFs)
+
+Check [04_pyspark](../05-batch/code/04_pyspark.ipynb) for information on / examples of functions and UDFs.
 
 
+# Preparing Green and Yellow Taxi Data
 
+## Download the Datasets
+
+The [download_data.sh](../05-batch/code/download_data.sh) script downloads the csvs from github.
+
+Added code/data folder to .gitignore so the datasets won't have been pushed to github. Run the scripts again locally if you want the data.
+
+Here is the script:
+
+```bash
+#!/bin/bash
+set -e
+
+TAXI_TYPE=$1 # "yellow"
+YEAR=$2 # 2020
+
+URL_PREFIX="https://s3.amazonaws.com/nyc-tlc/trip+data"
+
+for MONTH in {1..12}; do
+  FMONTH=`printf "%02d" ${MONTH}`
+
+  URL="${URL_PREFIX}/${TAXI_TYPE}_tripdata_${YEAR}-${FMONTH}.csv"
+
+  LOCAL_PREFIX="data/raw/${TAXI_TYPE}/${YEAR}/${FMONTH}"
+  LOCAL_FILE="${TAXI_TYPE}_tripdata_${YEAR}_${FMONTH}.csv"
+  LOCAL_PATH="${LOCAL_PREFIX}/${LOCAL_FILE}"
+
+  echo "donwloading ${URL} to ${LOCAL_PATH}"
+  mkdir -p ${LOCAL_PREFIX}
+  wget ${URL} -O ${LOCAL_PATH}
+
+  echo "compressing ${LOCAL_PATH}"
+  gzip ${LOCAL_PATH}
+done
+```
+* The script loops through 12 months and downloads the dataset for each month for the specified taxi type and year
+    * Will do `green` and `yellow` and `2020` and `2021`
+    8 Setting them to $1 and $2 means that we can specify the arguments at the command line
+* `set -e` means that the script will stop if any of the commands fail. This may happen with `wget` when we download files.
+* We parametrize each part of the dataset URL. For the month, we need to convert the month numnber to 2-digits with leading zeros for single-digit months.
+* `printf` is a shell built-in command available in bash and other shells which behaves very similar to C's `printf()` function. It can be used instead of `echo` for finer output control.
+    * The syntax for the command is `printf [-v var] format [arguments]`
+        * The `[-v var]` option is for assigning the output to a variable rather than printing it.
+        * `format` is a string that may contain normal characters, backslash-escaped characters and conversion specifications for describing the format.
+            * Conversion specifications follow this syntax: `%[flags][width][.precision]specifier`
+        * `[arguments]` is a list of arguments of any length that will be passed to the `format` string.
+    * `printf "%02d" ${MONTH}` means that the `${MONTH}` argument will be reformatted to show 2 digits with a leading 0 for single digit months.
+        * `%` is the conversion specification character.
+        * `0` is a flag for padding with leading zeroes.
+        * `2` is a width directive; in our case, it means that the output should be of length 2.
+        * `d` is the type conversion specifier for signed decimal integers.
+    * You may learn more about the `printf` command [in this link](https://linuxize.com/post/bash-printf-command/).
+* `mkdir -p` creates both the final directory and its parent directories if they do not exist.
+* The `-O` option in `wget ${URL} -O ${LOCAL_PATH}` is for specifying the file name.
+
+**Run the following command to execute the bash script and download the documents:**
+
+```bash
+./download_data.sh yellow 2020
+```
+- the 2021 data for yellow and green only has 7 months (August onwards not available)
+
+After running the script, you may check the final folder structure with `tree`
+- might have to run `sudo apt-get install tree` to install tree first
+
+## Parquetise the Datasets
+
+We'll read the csv datasets and apply our defined schemas, and then partition the datasets and parquetize them.
+- using same trick as [reading csv section](#reading-csv-files) - creating a pandas df (which infers) datatypes to figure out how to define our schemas (have removed that step from the below ipynb, showing just a finalised step by step to convert the csvs to appropriate parquets)
+- You can also set the inferSchema option to True when reading files in Spark, instead of using pandas
+
+See the [05_taxi_schema notebook](../05-batch/code/05_taxi_schema.ipynb) for the steps to do so.
+
+# SQL with Spark
 
