@@ -7,7 +7,6 @@
     - [Types of Batch Jobs](#types-of-batch-jobs)
     - [Orchestrating Batch Jobs](#orchestrating-batch-jobs)
     - [Pros and Cons of Batch Jobs](#pros-and-cons-of-batch-jobs)
-- [Introduction to Spark](#introduction-to-spark)
     - [What is Spark](#what-is-spark)
     - [Why do we need Spark?](#why-do-we-need-spark)
 - [Installing Spark](#installing-spark)
@@ -19,13 +18,39 @@
     - [Spark Dataframes](#spark-dataframes)
     - [Actions and Transformations](#actions-and-transformations)
     - [Functions and UDFs](#functions-and-user-defined-functions-udfs)
-- [Preparing Yellow and Green Taxi Data]
-    - [Download the Datasets]
-    - [Parquetise the Datasets]
-- [Spark SQL]
-    - [Combining the 2 datasets]
-    - [Querying a Dataset with Temporary Tables]
-- [Spark Internals]
+- [Preparing Yellow and Green Taxi Data](#preparing-green-and-yellow-taxi-data)
+    - [Download the Datasets](#download-the-datasets)
+    - [Parquetise the Datasets](#parquetise-the-datasets)
+- [SQL with Spark](#sql-with-spark)
+    - [Combining the 2 datasets](#combining-two-datasets)
+    - [Querying a Dataset with Temporary Tables](#querying-a-dataset-with-temporary-tables)
+- [Spark Internals](#spark-internals)
+    - [Spark Clusters](#spark-clusters)
+    - [GroupBy in Spark](#groupby-in-spark)
+    - [Joins in Spark](#joins-in-spark)
+        - [Joining 2 Large Tables](#joining-2-large-tables)
+        - [Joining 1 large and 1 small table](#joining-a-large-table-and-a-small-table)
+- [Resilient Distributed Datasets](#resilient-distributed-datasets)
+    - [RDDS: Map and Reduce](#rdds-map--reduce)
+        - [Operations on RDDs: map, filter, reduceByKey](#operations-on-rdds-map-filter-reducebykey)
+        - [From RDD to DataFrame](#from-rdd-to-dataframe)
+    - [Spark RDD mapPartitions](#spark-rdd-mappartitions)
+        - [Using mapPartition for ML](#using-mappartitions-for-ml)
+- [Running Spark in the Cloud](#running-spark-in-the-cloud)
+    - [Connecting to Google Cloud Storage](#connecting-to-google-cloud-storage)
+        - [Uploading files to Cloud Storage with gsutil](#uploading-files-to-cloud-storage-with-gsutil)
+        - [Configuring Spark with the GCS connector](#configuring-spark-with-the-gcs-connector)
+        - [Reading the remote data](#reading-the-remote-data)
+    - [Creating a local spark cluster](#creating-a-local-spark-cluster)
+        - [Spark standalone master and workers](#spark-standalone-master-and-workers)
+        - [Parameterizing our scripts for Spark](#parametrizing-our-scripts-for-spark)
+        - [Submitting spark jobs with spark submit](#submitting-spark-jobs-with-spark-submit)
+    - [Setting up a Dataproc Cluster](#setting-up-a-dataproc-cluster)
+        - [Creating the cluster](#creating-the-cluster)
+        - [Running a job with the web ui](#running-a-job-with-the-web-ui)
+        - [Running a job with the gcloud SDK](#running-a-job-with-the-gcloud-sdk)
+        - [Connecting Spark to BigQuery](#connecting-spark-to-bigquery)
+
 
 # Introduction to Spark
 
@@ -99,8 +124,6 @@ Each step would involve batch processing - and would be orchestrated via e.g. Ma
     * Delay. Each task of the workflow in the previous section may take a few minutes; assuming the whole workflow takes 20 minutes, we would need to wait those 20 minutes until the data is ready for work.
 
 Most companies that deal with data tend to work with batch jobs most of the time (probably 90%) - it's good enough for most things.
-
-# Introduction to Spark
 
 ## What is Spark?
 
@@ -578,7 +601,7 @@ df_result.coalesce(1).write.parquet('data/report/revenue/', mode='overwrite')
 ```
 * This reduces the amount of partitions to just 1.
 
-# Spark Internals
+# Spark Internals
 
 ## Spark Clusters
 
@@ -739,8 +762,652 @@ Shuffling is an ***expensive operation***, so it's in our best interest to reduc
 
 Joins in spark operate similarly internally to GroupBys, but there are 2 distinct cases: joining 2 large tables and joining a large table and a small table.
 
-## Joining 2 Large Tables
+### Joining 2 Large Tables
 
-Using the `df_yellow_revenue` and `df_green_revenue` dfs that we saved to data/report/revenue - in the green and yellow folders as csvs.
+Using [07_groupby_join](../05-batch/code/07_groupby_join.ipynb)
+
+Creating `df_yellow_revenue` and `df_green_revenue` dfs from the parquet files that we saved to data/report/revenue - in the green and yellow folders - and renaming a couple of the columns (which is a transformation, not an action - so spark won't do anything yet)
+
+```python
+df_green_revenue = spark.read.parquet('data/report/revenue/green')
+df_yellow_revenue = spark.read.parquet('data/report/revenue/yellow')
+
+df_green_revenue_tmp = df_green_revenue \
+    .withColumnRenamed('amount', 'green_amount') \
+    .withColumnRenamed('number_records', 'green_number_records')
+
+df_yellow_revenue_tmp = df_yellow_revenue \
+    .withColumnRenamed('amount', 'yellow_amount') \
+    .withColumnRenamed('number_records', 'yellow_number_records')
+```
+
+Now using an [outer join](https://dataschool.com/how-to-teach-people-sql/sql-join-types-explained-visually/) to display the amount of trips and revenue per hour per zone (the groups as per the group by section above) for green and yellow taxis at the same time regardless of whether the hour/zone combo had one type of taxi trips or the other:
+
+```python
+df_join = df_green_revenue_tmp.join(df_yellow_revenue_tmp, on=['hour', 'zone'], how='outer')
+```
+* `on=` receives a list of columns by which we will join the tables. This will result in a ***primary composite key*** for the resulting table.
+* `how=` specifies the type of `JOIN` to execute.
+
+An outer join = includes all data from both tables (so if there is no matching row in the other table for 'on' dimensions, there will be Nulls instead). See below result of `df_join.show()`
+
+![df_join](images/05_01.png)
+
+```mermaid
+graph LR
+    subgraph S1[Stage 1]
+        direction TB
+        s1(Scan parquet)-->s2("WholeStageCodegen(3)")-->s3(Exchange)
+    end
+    subgraph S2[Stage 2]
+        direction TB
+        s4(Scan parquet)-->s5("WholeStageCodegen(1)")-->s6(Exchange)
+    end
+    subgraph S3[Stage 3]
+        direction TB
+        s7(Exchange)-->s8("WholeStageCodegen(2)")
+        s9(Exchange)-->s10("WholeStageCodegen(4)")
+        s8 & s10 -->s11(SortMergeJoin)-->s12("WholeStageCodegen(5)")
+    end
+    s3-->s9
+    s6-->s7
+```
+
+Stages 1 and 2 belong to the creation of `df_green_revenue_tmp` and `df_yellow_revenue_tmp`.
+
+For stage 3, given all records for yellow taxis `Y1, Y2, ... , Yn` and for green taxis `G1, G2, ... , Gn` and knowing that the resulting composite key is `key K = (hour H, zone Z)`, we can express the resulting complex records as `(Kn, Yn)` for yellow records and `(Kn, Gn)` for green records. Spark will first ***shuffle*** the data like it did for grouping (using the ***external merge sort algorithm***) and then it will ***reduce*** the records by joining yellow and green data for matching keys to show the final output.
+
+```mermaid
+graph LR
+    subgraph Y [yellow taxis]
+        y1("(K1, Y1)<br/>(K2, Y2)")
+        y2("(K3, Y3)")
+    end
+    subgraph G [green taxis]
+        g1("(K2, G1)<br/>(K3, G2)")
+        g2("(K4, G3)")
+    end
+    subgraph S [shuffled partitions]
+        s1("(K1, Y1)<br/>(K4, G3)")
+        s2("(K2, Y2)<br/>(K2, G1)")
+        s3("(K3, Y3)<br/>(K3, G2)")
+    end
+    subgraph R [reduced partitions]
+        r1("(K1, Y1, Ø)<br/>(K4, Ø, G3)")
+        r2("(K2, Y2, G1)")
+        r3("(K3, Y3, G2)")
+    end
+    y1 --> s1 & s2
+    y2 --> s3
+    g1 --> s2 & s3
+    g2 --> s1
+    s1 --> r1
+    s2 --> r2
+    s3 --> r3
+```
+* Because we're doing an ***outer join***, keys which only have yellow taxi or green taxi records will be shown with empty fields for the missing data, whereas keys with both types of records will show both yellow and green taxi data.
+    * If we did an ***inner join*** instead, the records such as `(K1, Y1, Ø)` and `(K4, Ø, G3)` would be excluded from the final result.
 
 
+### Joining a large table and a small table
+
+
+Using the [zones lookup table](../05-batch/code/data/zones/) to match each zone ID in df_join with it's corresponding zone name
+
+```python
+df_zones = spark.read.parquet('zones/')
+
+df_result = df_join.join(df_zones, df_join.zone == df_zones.LocationID)
+
+df_result.drop('LocationID', 'zone').write.parquet('tmp/revenue-zones')
+```
+* The default join type in Spark SQL is the inner join.
+* Because we renamed the `LocationID` in the joint table to `zone`, we can't simply specify the columns to join and we need to provide a condition as criteria.
+* We use the `drop()` method to get rid of the extra columns we don't need anymore, because we only want to keep the zone names and both `LocationID` and `zone` are duplicate columns with numeral ID's only.
+* We also use `write()` instead of `show()` because `show()` might not process all of the data.
+
+The `zones` table is actually very small and joining both tables with merge sort is unnecessary. What Spark does instead is ***broadcasting***: Spark sends a copy of the complete table to all of the executors and each executor then joins each partition of the big table in memory by performing a lookup on the local broadcasted table.
+
+```mermaid
+graph LR
+    subgraph B [big table]
+        b1[partition 1]
+        b2[partition 2]
+        b3[partition 3]
+    end
+    subgraph E [executors]
+        subgraph E1 [executor 1]
+            e1{{executor}} -.->|lookup| z1["zones (local)"]
+            z1 -.->|return| e1
+        end
+        subgraph E2 [executor 2]
+            e2{{executor}} -.->|lookup| z2["zones (local)"]
+            z2 -.->|return| e2
+        end
+        subgraph E3 [executor 3]
+            e3{{executor}} -.->|lookup| z3["zones (local)"]
+            z3 -.->|return| e3
+        end
+    end
+    subgraph R [result]
+        r1[zone, ...]
+        r2[zone, ...]
+        r3[zone, ...]
+    end
+    z[zones]-.->|broadcast| z1 & z2 & z3
+    b1-->e1-->r1
+    b2-->e2-->r2
+    b3-->e3-->r3
+```
+
+Shuffling isn't needed because each executor already has all of the necessary info to perform the join on each partition, thus speeding up the join operation by orders of magnitude.
+
+# Resilient Distributed Datasets
+
+Using [08_rdds.ipynb notebook](../05-batch/code/08_rdds.ipynb)
+
+RDDs are the basis for what Spark uses to do distributed configurations.
+
+***Resilient Distributed Datasets*** (RDDs) are the main abstraction provided by Spark and consist of collection of elements partitioned accross the nodes of the cluster.
+
+Dataframes are a layer of abstraction on top of RDDs and contain a schema as well, which plain RDDs do not - they are just a distributed collection of objects
+
+## RDDs: Map & Reduce
+
+### From Dataframe to RDD
+
+Spark dataframes contain a `rdd` field which contains the raw RDD of the dataframe. The RDD's objects used for the dataframe are called ***rows***.
+
+If we look at the SQL query we saw in the [GROUP BY section](#group-by-in-spark), which we perfomed on `05-batch/code/data/pq/green/`  saved as parquet files in `05-batch/code/data/report/revenue/green/`
+
+```sql
+SELECT 
+    date_trunc('hour', lpep_pickup_datetime) AS hour, 
+    PULocationID AS zone,
+
+    SUM(total_amount) AS amount,
+    COUNT(1) AS number_records
+FROM
+    green
+WHERE
+    lpep_pickup_datetime >= '2020-01-01 00:00:00'
+GROUP BY
+    1, 2
+```
+
+We can reimplement this query with RDD's instead:
+
+1. `SELECT` 3 fields from the RDDs rows
+    ```python
+    rdd = df_green \
+        .select('lpep_pickup_datetime', 'PULocationID', 'total_amount') \
+        .rdd
+    ```
+1. Recreate the `WHERE` clause by using the `filter()` and `take()` methods:
+    * `filter()` returns a new RDD cointaining only the elements that satisfy a _predicate_, which in our case is a function that we pass as a parameter.
+    * `take()` takes as many elements from the RDD as stated - each element is a row of data (so just keeping one row below)
+    ```python
+    from datetime import datetime
+
+    start = datetime(year=2020, month=1, day=1)
+
+    def filter_outliers(row):
+        return row.lpep_pickup_datetime >= start
+
+    rdd.filter(filter_outliers).take(1)
+    ```
+### Operations on RDDs: map, filter, reduceByKey
+
+> Note: the `Group By` is more complex and makes use of special methods 
+
+1. We need to generate _intermediate results_ in a very similar way to the original SQL query, so we will need to create the _composite key_ `(hour, zone)` and a _composite value_ `(amount, count)`, which are the 2 halves of each record that the executors will generate. Once we have a function that generates the record, we will use the `map()` method, which takes an RDD, transforms it with a function (our key-value function) and returns a new RDD.
+    ```python
+    def prepare_for_grouping(row): 
+        hour = row.lpep_pickup_datetime.replace(minute=0, second=0, microsecond=0)
+        zone = row.PULocationID
+        key = (hour, zone)
+        
+        amount = row.total_amount
+        count = 1
+        value = (amount, count)
+
+        return (key, value)
+    
+
+    rdd \
+        .filter(filter_outliers) \
+        .map(prepare_for_grouping) # so it maps key and value for each row in the rdd
+    ```
+
+1. We now need to use the `reduceByKey()` method, which will take all records with the same key and puts them together in a single record by transforming all the different values according to some rules which we can define with a custom function. Since we want to count the total amount and the total number of records, we just need to add the values:
+    ```python
+    # we get 2 value tuples from 2 separate records as input
+    def calculate_revenue(left_value, right_value):
+        # tuple unpacking
+        left_amount, left_count = left_value
+        right_amount, right_count = right_value
+        
+        output_amount = left_amount + right_amount
+        output_count = left_count + right_count
+        
+        return (output_amount, output_count)
+    
+    rdd \
+        .filter(filter_outliers) \
+        .map(prepare_for_grouping) \
+        .reduceByKey(calculate_revenue)
+
+* idea is that the reduceByKey function goes along the tuples with the same key in pairs e.g. (k1, 2), (k1, 4) reduced to (k1, 6) and then (k1, 6) paired with a 3rd tuple (k1, 3), which is reduced to (k1, 9) and so on...
+* As the rows in our example have two value records, will be summing both amount and count for each tuple pair
+
+1. The output we have is already usable but not very nice, so we map the output again in order to _unwrap_ it.
+    ```python
+    from collections import namedtuple
+    RevenueRow = namedtuple('RevenueRow', ['hour', 'zone', 'revenue', 'count'])
+    def unwrap(row):
+        return RevenueRow(
+            hour=row[0][0], 
+            zone=row[0][1],
+            revenue=row[1][0],
+            count=row[1][1]
+        )
+
+    rdd \
+        .filter(filter_outliers) \
+        .map(prepare_for_grouping) \
+        .reduceByKey(calculate_revenue) \
+        .map(unwrap)
+    ```
+    * Using `namedtuple` isn't necessary but it will help in the next step.
+
+### From RDD to DataFrame
+
+Can then take the resulting RDD and convert it to a dataframe with `toDF()`. We will need to generate a schema first because we lost it when converting RDDs:
+
+```python
+from pyspark.sql import types
+
+result_schema = types.StructType([
+    types.StructField('hour', types.TimestampType(), True),
+    types.StructField('zone', types.IntegerType(), True),
+    types.StructField('revenue', types.DoubleType(), True),
+    types.StructField('count', types.IntegerType(), True)
+])
+
+df_result = rdd \
+    .filter(filter_outliers) \
+    .map(prepare_for_grouping) \
+    .reduceByKey(calculate_revenue) \
+    .map(unwrap) \
+    .toDF(result_schema) 
+```
+* We can use `toDF()` without any schema as an input parameter, but Spark will have to figure out the schema by itself which may take a substantial amount of time. Using `namedtuple` in the previous step allows Spark to infer the column names but Spark will still need to figure out the data types; by passing a schema as a parameter we skip this step and get the output much faster.
+
+As you can see, manipulating RDDs to perform SQL-like queries is complex and time-consuming. Ever since Spark added support for dataframes and SQL, manipulating RDDs in this fashion has become obsolete, but since dataframes are built on top of RDDs, knowing how they work can help us understand how to make better use of Spark.
+
+## Spark RDD mapPartitions
+
+The `mapPartitions()` function behaves similarly to `map()` in how it receives an RDD as input and transforms it into another RDD with a function that we define but it transforms partitions rather than elements. In other words: `map()` creates a new RDD by transforming every single element, whereas `mapPartitions()` transforms every partition to create a new RDD.
+
+`mapPartitions()` is a convenient method for dealing with large datasets because it allows us to separate it into chunks that we can process more easily, which is handy for workflows such as Machine Learning.
+
+### Using `mapPartitions()` for ML
+
+Let's assume we want to predict taxi travel duration with the green taxi dataset. We will use `VendorID`, `lpep_pickup_datetime`, `PULocationID`, `DOLocationID` and `trip_distance` as our features. The below creates an RDD with these columns:
+
+```python
+columns = ['VendorID', 'lpep_pickup_datetime', 'PULocationID', 'DOLocationID', 'trip_distance']
+
+duration_rdd = df_green \
+    .select(columns) \
+    .rdd
+```
+
+Let's now create the method that `mapPartitions()` will use to transform the partitions. This method will essentially call our prediction model on the partition that we're transforming:
+
+```python
+import pandas as pd
+
+def model_predict(df):
+    # ML code goes here
+    (...)
+    # predictions is a Pandas dataframe with the field predicted_duration in it
+    return predictions
+
+# this function is applied to mapPartitions method on an rdd
+def apply_model_in_batch(rows):
+    df = pd.DataFrame(rows, columns=columns)
+    predictions = model_predict(df)
+    df['predicted_duration'] = predictions
+
+    for row in df.itertuples():
+        yield row
+```
+
+* We're assuming that our model works with Pandas dataframes, so we need to import the library.
+* We are converting the input partition into a dataframe for the model.
+    * RDD's do not contain column info, so we use the `columns` param to name the columns because our model may need them.
+    * Pandas will crash if the dataframe is too large for memory! We're assuming that this is not the case here, but you may have to take this into account when dealing with large partitions. You can use the [itertools package](https://docs.python.org/3/library/itertools.html) for slicing the partitions before converting them to dataframes.
+* Our model will return another Pandas dataframe with a `predicted_duration` column containing the model predictions.
+* `df.itertuples()` is an iterable that returns a tuple containing all the values in a single row, for all rows. Thus, `row` will contain a tuple with all the values for a single row.
+* `yield` is a Python keyword that behaves similarly to `return` but returns a ***generator object*** instead of a value. This means that a function that uses `yield` can be iterated on. Spark makes use of the generator object in `mapPartitions()` to build the output RDD.
+  * You can learn more about the `yield` keyword [in this link](https://realpython.com/introduction-to-python-generators/).
+
+With our defined fuction, we are now ready to use `mapPartitions()` and run our prediction model on our full RDD:
+
+```python
+df_predicts = duration_rdd \
+    .mapPartitions(apply_model_in_batch)\
+    .toDF() \
+    .drop('Index')
+
+df_predicts.select('predicted_duration').show()
+```
+
+* We're not specifying the schema when creating the dataframe, so it may take some time to compute.
+* We drop the `Index` field because it was created by Spark and it is not needed.
+
+As a final thought, you may have noticed that the `apply_model_in_batch()` method does NOT operate on single elements, but rather it takes the whole partition and does something with it (in our case, calling a ML model). If you need to operate on individual elements then you're better off with `map()`.
+
+# Running Spark in the Cloud
+
+So far we've seen how to run Spark locally and how to work with local data. In this section we will cover how to use Spark with remote data and run Spark in the cloud as well.
+
+## Connecting to Google Cloud Storage
+
+Google Cloud Storage is an _object store_, which means that it doesn't offer a fully featured file system. Spark can connect to remote object stores by using ***connectors***; each object store has its own connector, so we will need to use [Google's Cloud Storage Connector](https://cloud.google.com/dataproc/docs/concepts/connectors/cloud-storage) if we want our local Spark instance to connect to our Data Lake.
+
+Before we do that, we will use `gsutil` to upload our local files to our Data Lake. `gsutil` is included with the GCP SDK, so you should already have it if you've followed the previous chapters.
+
+### Uploading files to Cloud Storage with `gsutil`
+
+Will be uploading to this bucket: `dtc_data_lake_evident-display-410312` in a new folder called `pq`
+
+The data we want to upload was some of the data created in this weeks lessons: `../05-batch/code/data/pq`
+
+Assuming you've got a bunch of parquet files you'd like to upload to Cloud Storage, run the following command to upload them:
+
+```bash
+gsutil -m cp -r 05-batch/code/data/pq gs://dtc_data_lake_evident-display-410312/pq
+```
+* The `-m` option is for enabling multithreaded upload in order to speed it up.
+* `cp` is for copying files.
+* `-r` stands for _recursive_; it's used to state that the contents of the local folder are to be uploaded. For single files this option isn't needed.
+
+### Configuring Spark with the GCS connector
+
+Go to the [Google's Cloud Storage Connector page](https://cloud.google.com/dataproc/docs/concepts/connectors/cloud-storage) and download the corresponding version of the connector. The version tested for this lesson is version 2.5.5 for Hadoop 3; create a `lib` folder (made this in 05-batch folder) in your work directory and run the following command from it:
+
+```bash
+gsutil cp gs://hadoop-lib/gcs/gcs-connector-hadoop3-2.2.5.jar gcs-connector-hadoop3-2.2.5.jar
+```
+
+This will download the connector to the local folder.
+
+We now need to follow a few extra steps before creating the Spark session in our notebook. Import the following libraries:
+
+```python
+import pyspark
+from pyspark.sql import SparkSession
+from pyspark.conf import SparkConf
+from pyspark.context import SparkContext
+```
+
+Now we need to configure Spark by creating a configuration object. Run the following code to create it:
+
+```python
+credentials_location = '/home/USERNAME/.gc/evident-display-410312-6d17d29a1ecf.json'
+
+conf = SparkConf() \
+    .setMaster('local[*]') \
+    .setAppName('test') \
+    .set("spark.jars", "../lib/gcs-connector-hadoop3-2.2.5.jar") \
+    .set("spark.hadoop.google.cloud.auth.service.account.enable", "true") \
+    .set("spark.hadoop.google.cloud.auth.service.account.json.keyfile", credentials_location)
+```
+
+You may have noticed that we're including a couple of options that we previously used when creating a Spark Session with its builder. That's because we implicitly created a ***context***, which represents a connection to a spark cluster. This time we need to explicitly create and configure the context like so:
+
+```python
+sc = SparkContext(conf=conf)
+
+hadoop_conf = sc._jsc.hadoopConfiguration()
+
+hadoop_conf.set("fs.AbstractFileSystem.gs.impl",  "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
+hadoop_conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+hadoop_conf.set("fs.gs.auth.service.account.json.keyfile", credentials_location)
+hadoop_conf.set("fs.gs.auth.service.account.enable", "true")
+```
+
+This will likely output a warning when running the code. You may ignore it.
+
+We can now finally instantiate a Spark session:
+
+```python
+spark = SparkSession.builder \
+    .config(conf=sc.getConf()) \
+    .getOrCreate()
+```
+
+### Reading the remote data
+
+In order to read the parquet files stored in the Data Lake, you simply use the bucket URI as a parameter, like so:
+
+```python
+df_green = spark.read.parquet('gs://dtc_data_lake_evident-display-410312/pq/green/*/*')
+```
+
+You should obviously change the URI in this example for yours.
+
+You may now work with the `df_green` dataframe normally.
+
+## Creating a Local Spark Cluster
+
+Using [10_local_cluster](../05-batch/code/10_local_cluster.ipynb)
+
+### Spark standalone master and workers
+
+Have so far been creating Spark sessions from notebooks, using the following
+
+```python
+spark = SparkSession.builder \
+    .master("local[*]") \
+    .appName('test') \
+    .getOrCreate()
+```
+
+This code will stard a local cluster, but once the notebook kernel is shut down, the cluster will disappear.
+
+We will now see how to crate a Spark cluster in [Standalone Mode](https://spark.apache.org/docs/latest/spark-standalone.html) so that the cluster can remain running even after we stop running our notebooks.
+
+Simply go to your Spark install directory (/spark/spark-3.4.2-bin-hadoop3/ for me) from a terminal and run the following command:
+
+```bash
+./sbin/start-master.sh
+```
+
+fyi, following command will give Spark install directory as we saved the variable in .bashrc earlier on:
+
+```bash
+ echo $SPARK_HOME
+ ```
+
+ You should now be able to open the main Spark dashboard by browsing to `localhost:8080` (remember to forward the port if you're running it on a virtual machine). At the very top of the dashboard the URL for the dashboard should appear; copy it and use it in your session code like so:
+
+```python
+spark = SparkSession.builder \
+    .master("spark://<URL>:7077") \
+    .appName('test') \
+    .getOrCreate()
+```
+* Note that we used the HTTP port 8080 for browsing to the dashboard but we use the Spark port 7077 for connecting our code to the cluster.
+* Using `localhost` as a stand-in for the URL (which appears in the spark master ui at localhost:8080 - was `spark://de-zoomcamp.europe-west2-c.c.evident-display-410312.internal:7077` for me) may not work.
+* You'll now see an application is spark master of name `test`
+
+You may note that in the Spark dashboard there aren't any _workers_ listed. The actual Spark jobs are run from within ***workers*** (or _slaves_ in older Spark versions), which we need to create and set up.
+
+Similarly to how we created the Spark dashboard, we can run a worker from the command line by running the following command from the Spark install directory:
+
+```bash
+./sbin/start-worker.sh spark://de-zoomcamp.europe-west2-c.c.evident-display-410312.internal:7077
+```
+* In older Spark versions, the script to run is `start-slave.sh` .
+
+Once you've run the command, you should see a worker in the Spark dashboard - and you can now execute actions
+
+Note that a worker may not be able to run multiple jobs simultaneously. If you're running separate notebooks and connecting to the same Spark worker, you can check in the Spark dashboard how many Running Applications exist. Since we haven't configured the workers, any jobs will take as many resources as there are available for the job.
+
+### Parametrizing our scripts for Spark
+
+As spark is now running independently of our notebook, we can use spark with a .py file.
+
+You can convert a notebook into a .py script using `nbconvert`:
+
+```bash
+jupyter nbconvert --to=script 06_spark_sql.ipynb
+```
+
+N.b. can see the converted and parameterized script [here](../05-batch/code/06_spark_sql.py)
+- suitable for running the spark-submit command with (as the spark master url has been taken out of this script)
+
+So far we've hard-coded many of the values such as folders and dates in our code, but with a little bit of tweaking we can make our code so that it can receive parameters from Spark and make our code much more reusable and versatile. We will use the [argparse library](https://docs.python.org/3/library/argparse.html) for parsing parameters. 
+
+```python
+import argparse
+
+import pyspark
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+parser.add_argument('--input_green', required=True)
+parser.add_argument('--input_yellow', required=True)
+parser.add_argument('--output', required=True)
+
+input_green = args.input_green
+input_yellow = args.input_yellow
+output = args.output
+```
+
+We can now modify previous lines using the 3 parameters we've created. For example:
+
+```python
+df_green = spark.read.parquet(input_green)
+```
+
+Once we've finished our script, we simply call it from a terminal line with the parameters we need:
+
+```bash
+python 06_spark_sql.py \
+    --input_green=data/pq/green/2020/*/ \
+    --input_yellow=data/pq/yellow/2020/*/ \
+    --output=data/report-2020
+```
+
+### Submitting Spark jobs with Spark submit
+
+However, we still haven't covered any Spark specific parameters; things like the the cluster URL when having multiple available clusters or how many workers to use for the job. Instead of specifying these parameters when setting up the session inside the script, we can use an external script called [Spark submit](https://spark.apache.org/docs/latest/submitting-applications.html).
+
+The basic usage is as follows:
+
+```bash
+spark-submit \
+    --master="spark://de-zoomcamp.europe-west2-c.c.evident-display-410312.internal:7077" \
+    06_spark_sql.py \
+        --input_green=data/pq/green/2020/*/ \
+        --input_yellow=data/pq/yellow/2020/*/ \
+        --output=data/report-2020
+```
+* You can specify other parameters e.g. how many executors to use
+
+And the Spark session code in the script is simplified like so:
+
+```python
+spark = SparkSession.builder \
+    .appName('test') \
+    .getOrCreate()
+```
+
+You may find more sophisticated uses of `spark-submit` in the [official documentation](https://spark.apache.org/docs/latest/submitting-applications.html).
+
+After you're done running Spark in standalone mode, you will need to manually shut it down. Simply run the `./sbin/stop-worker.sh` (`./sbin/stop-slave.sh` in older Spark versions) and `./sbin/stop-master.sh` scripts to shut down Spark.
+
+
+## Setting up a Dataproc Cluster
+
+### Creating the cluster
+
+[Dataproc](https://cloud.google.com/dataproc) is Google's cloud-managed service for running Spark and other data processing tools such as Flink, Presto, etc.
+
+You may access Dataproc from the GCP dashboard and typing `dataproc` on the search bar. The first time you access it you will have to enable the API.
+
+In the images below you may find some example values for creating a simple cluster. Give it a name of your choosing and choose the same region as your bucket. We would normally choose a `standard` cluster, but you may choose `single node` if you just want to experiment and not run any jobs.
+
+![creating a cluster](images/05_02.png)
+
+You can optionally install additional components but we won't be covering them in this lesson.
+
+![creating a cluster](images/05_03.png)
+
+You can leave all other optional settings with their default values. After you click on `Create`, it will take a few seconds to create the cluster. You may notice an extra VM instance under VMs; that's the Spark instance.
+
+### Running a job with the web UI
+
+In a [previous section](#configuring-spark-with-the-gcs-connector) we saw how to connect Spark to our bucket in GCP. However, in Dataproc we don't need to specify this connection because it's already pre-comfigured for us. We will also submit jobs using a menu, following similar principles to what we saw in the previous section.
+
+In Dataproc's _Clusters_ page, choose your cluster and on the _Cluster details_ page, click on `Submit job`. Under _Job type_ choose `PySpark`, then in _Main Python file_ write the path to your script.
+
+You'll need to write the script to your google cloud bucket first - and then use that path in the job config section in the image below (n.b. the path to the python file in the image is wrong, the bucket name is `tc_data_lake_evident-display-410312`):
+
+```bash
+gsutil cp 06_spark_sql.py gs://<bucketname/folder/06_spark_sql.py>
+```
+
+![setting up a job](images/05_04.png)
+
+Make sure that your script does not specify the `master` cluster! Your script should take the connection details from Dataproc; make sure it looks something like this:
+
+```python
+spark = SparkSession.builder \
+    .appName('test') \
+    .getOrCreate()
+```
+
+
+We also need to specify arguments, in a similar fashion to what we saw [in the previous section](#parametrizing-our-scripts-for-spark), but using the URL's for our folders rather than the local paths:
+
+![setting up a job](images/05_05.png)
+
+Now press `Submit`. Sadly there is no easy way to access the Spark dashboard (may have to enter the spark cluster VM that was created, in a similar way I'm using a gcp VM as the environment for this course) but you can check the status of the job from the `Job details` page.
+
+### Running a job with the gcloud SDK
+
+Besides the web UI, there are additional ways to run a job, listed [in this link](https://cloud.google.com/dataproc/docs/guides/submit-job) e.g. using REST. We will focus on the gcloud SDK now.
+
+Before you can submit jobs with the SDK, you will need to grant permissions to the Service Account we've been using so far. Go to _IAM & Admin_ and edit your Service Account so that the `Dataproc Administrator` role is added to it.
+
+We can now submit a job from the command line, like this:
+
+```bash
+gcloud dataproc jobs submit pyspark \
+    --cluster=<your-cluster-name> \
+    --region=europe-west6 \
+    gs://<url-of-your-script> \
+    -- \
+        --param1=<your-param-value> \
+        --param2=<your-param-value>
+```
+
+For me, this is:
+
+```bash
+gcloud dataproc jobs submit pyspark \
+    --cluster=de-zoomcamp-cluster \
+    --region=europe-west2 \
+    gs://dtc_data_lake_evident-display-410312/code/06_spark_sql.py \
+    -- \
+        --input_green=gs://dtc_data_lake_evident-display-410312/pq/green/2021/*/ \
+        --input_yellow=gs://dtc_data_lake_evident-display-410312/pq/yellow/2021/*/ \
+        --output=gs://dtc_data_lake_evident-display-410312/report-2021
+```
+
+## Connecting Spark to BigQuery

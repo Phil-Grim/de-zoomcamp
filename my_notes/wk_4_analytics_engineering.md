@@ -197,7 +197,7 @@ In order to use dbt Cloud you will need to create a user account. Got to the [db
 
 During the sign up process, asked to create a starter project and connection to a database
 * Followed the instructions in `dbt_cloud_setup.md` to connect to BigQuery
-    * Useed dbt-service-account as the service account name
+    * Used dbt-service-account as the service account name
         * email: dbt-service-account@evident-display-410312.iam.gserviceaccount.com
         * gave the service account BQ admin rights
 
