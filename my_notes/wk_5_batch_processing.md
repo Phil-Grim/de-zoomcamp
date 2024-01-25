@@ -1442,6 +1442,8 @@ gsutil cp 06_spark_sql_big_query.py gs://dtc_data_lake_evident-display-410312/co
 
 
 The code to execute in the command line:
+- With the amended output parameter to send the data to bigquery
+- With a jar connector specified
 
 ```bash
 gcloud dataproc jobs submit pyspark \

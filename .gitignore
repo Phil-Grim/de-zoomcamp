@@ -15,3 +15,4 @@ serving_dir
 .ipynb_checkpoints/
 !week_6_stream_processing/avro_example/data/rides.csv
 ./05-batch/code/fhvhv_tripdata_2021-01.csv
+my_notes/2024_hw.md
