@@ -1411,3 +1411,55 @@ gcloud dataproc jobs submit pyspark \
 ```
 
 ## Connecting Spark to BigQuery
+
+This [link](https://cloud.google.com/dataproc/docs/tutorials/bigquery-connector-spark-example#pyspark) talks about
+connecting Spark to BigQuery.
+
+Using [06_spark_sql_biq_query.py](../05-batch/code/06_spark_sql_big_query.py) - which is a copy of `06_spark_sql_big_query` apart from a couple of adjustments.
+
+Remove the last line writing to parquet and replace with:
+
+```python
+df_result.write.format('bigquery') \
+    .option('table', output) \
+    .save()
+```
+
+- Will write the data to this table in the trips_data_all schema in BigQuery - the table doesn't exist in BigQuery, Spark should create this for us: `trips_data_all.reports-2020`. This is our `output` parameter.
+
+We also need to specify the name of a temporary bucket created by Dataproc (this is created when you create the cluster), as the spark-bigquery connector writes the data to BigQuery by first buffering all the data into a Cloud Storage temporary table, and then copies all the data into BigQuery in one operation (the connector will delete all the temp files once the BigQuery load operation has succeeded): 
+
+```python
+bucket = "dataproc-temp-europe-west2-603267822548-sfs4menx"
+spark.conf.set('temporaryGcsBucket', bucket)
+```
+
+We can now upload the script to our GCS bucket:
+
+```bash
+gsutil cp 06_spark_sql_big_query.py gs://dtc_data_lake_evident-display-410312/code/06_spark_sql_big_query.py 
+```
+
+
+The code to execute in the command line:
+
+```bash
+gcloud dataproc jobs submit pyspark \
+    --cluster=de-zoomcamp-cluster \
+    --region=europe-west2 \
+    --jars=gs://spark-lib/bigquery/spark-bigquery-latest_2.12.jar \
+    gs://dtc_data_lake_evident-display-410312/code/06_spark_sql_big_query.py \
+    -- \
+        --input_green=gs://dtc_data_lake_evident-display-410312/pq/green/2020/*/ \
+        --input_yellow=gs://dtc_data_lake_evident-display-410312/pq/yellow/2020/*/ \
+        --output=trips_data_all.reports-2020
+```
+
+In BigQuery, a `reports-2020` table exists in the `trips_data_all`, and you can run this query to check:
+
+``` sql
+SELECT * FROM `evident-display-410312.trips_data_all.reports-2020` LIMIT 10;
+```
+
+
+
