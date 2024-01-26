@@ -2,14 +2,14 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "4.51.0"
+      version = "4.51.0" 
     }
   }
 }
 
 provider "google" {
 # Credentials only needs to be set if you do not have the GOOGLE_APPLICATION_CREDENTIALS set
-#  credentials = 
+#  credentials = "path/to/keys.json"
   project = "<Your Project ID>"
   region  = "us-central1"
 }
@@ -17,7 +17,7 @@ provider "google" {
 
 
 resource "google_storage_bucket" "data-lake-bucket" {
-  name          = "<Your Unique Bucket Name>"
+  name          = "<Your Unique Bucket Name>" # this has to be globally unique (can use your unique project Id and append something)
   location      = "US"
 
   # Optional, but recommended settings:
