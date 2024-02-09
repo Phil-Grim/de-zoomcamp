@@ -8,7 +8,7 @@ from ride import Ride
 from settings import BOOTSTRAP_SERVERS, INPUT_DATA_PATH, KAFKA_TOPIC
 
 
-class JsonProducer(KafkaProducer):
+class JsonProducer(KafkaProducer): 
     def __init__(self, props: Dict):
         self.producer = KafkaProducer(**props)
 

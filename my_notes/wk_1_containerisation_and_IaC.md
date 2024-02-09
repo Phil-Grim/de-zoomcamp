@@ -12,7 +12,7 @@
       - [Dockerizing the Script](#dockerising-the-script)
     - [Running Postgres and PgAdmin with Docker-Compose](#running-postgres-and-pgadmin-with-docker-compose)
     - [SQL Refresher - NEED TO ADD NOTES](#sql-refresher)
-  - [Terraform and GCP Set Up - NEED TO ADD NOTES](#terraform--gcp-set-up)
+  - [Terraform and GCP Set Up](#terraform--gcp-set-up)
   - [Week 1 Homework](#week-1-hw)
   
 
