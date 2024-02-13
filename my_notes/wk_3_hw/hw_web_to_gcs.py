@@ -9,17 +9,13 @@ from prefect_gcp.bigquery import GcpCredentials, BigQueryWarehouse
 
 """
 Pre-reqs: 
-1. `pip install pandas pyarrow google-cloud-storage`
+1. `pip install pandas pyarrow google-cloud-storage prefect prefect_gcp[bigquery]`
 2. Set up a Prefect Cloud account, create an API key and log in via the terminal using the API key
 3. Created GCS bucket called 'homework-bucket-evident-display-410312'
 4. Created GCS block in Prefect cloud for the above bucket (using the GCP credentials block I already had) - called de-zoomcamp
+5. trips_data_all BigQuery dataset already exists in my project
 """
 
-
-
-# https://d37ci6vzurychx.cloudfront.net/trip-data/green_tripdata_2022-01.parquet
-# https://d37ci6vzurychx.cloudfront.net/trip-data/green_tripdata_2022-07.parquet
-# https://d37ci6vzurychx.cloudfront.net/trip-data/green_tripdata_2022-08.parquet
 
 @task(name='download files')
 def web_to_gcs():
